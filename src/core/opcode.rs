@@ -1,8 +1,6 @@
-use crate::core::{
-    system::{
-        Register,
-        System
-    }
+use crate::core::system::{
+    Register,
+    System
 };
 
 #[derive(Clone)]
@@ -12,9 +10,10 @@ pub struct Opcode{
     pub cycles: u16
 }
 pub trait Operand{
-    // Source - https://stackoverflow.com/a/65204236
-    // Posted by Freyja, modified by community. See post 'Timeline' for change history
-    // Retrieved 2026-10-07, License - CC BY-SA 4.0
+    /* Source - https://stackoverflow.com/a/65204236
+     * Posted by Freyja, modified by community. See post 'Timeline' for change history
+     * Retrieved 2026-10-07, License - CC BY-SA 4.0
+     */
     fn clone_box(&self) -> Box<dyn Operand>; 
 
     fn get_operand_type(&self) -> OperandType;
@@ -46,6 +45,7 @@ pub struct I8;
 #[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum OperandType{
     Address,
+    URegister,
     Register,
     U16,
     U8,
@@ -80,7 +80,7 @@ impl Operand for Address{
         if self.0.get_operand_type() == OperandType::Address { 
             panic!("[ERROR] Invalid operand type address(address(...)) "); 
         }
-
+        
         system.vram[
             self.0.get_operand_value(system)
         ] as usize
@@ -106,7 +106,7 @@ impl Operand for I8{
         value
     }
 
-    fn update_system(&self, value: usize, system: &mut System){
+    fn update_system(&self, _value: usize, _system: &mut System){
         panic!("[ERROR] System can not be updated by an literal i8");
     }
 }
@@ -126,7 +126,7 @@ impl Operand for U8{
         value
     }
 
-    fn update_system(&self, value: usize, system: &mut System){
+    fn update_system(&self, _value: usize, _system: &mut System){
         panic!("[ERROR] System can not be updated by an literal u8");
     }
 }
@@ -145,10 +145,13 @@ impl Operand for U16{
         system.pc += 1;
         let v2 = system.vram[system.pc as usize].clone();
         system.pc += 1;
-        i16::from_be_bytes([v1, v2]) as usize
+
+        /* NOTE: Game Boy use little endian 
+         */
+        i16::from_be_bytes([v2, v1]) as usize
     }
 
-    fn update_system(&self, value: usize, system: &mut System){
+    fn update_system(&self, _value: usize, _system: &mut System){
         panic!("[ERROR] System can not be updated by an literal u16");
     }
 }
@@ -159,7 +162,12 @@ impl Operand for Register{
     }
     
     fn get_operand_type(&self) -> OperandType{
-        OperandType::Register
+        if let Register::Union(_, _) = self {
+            OperandType::URegister
+        }
+        else {
+            OperandType::Register
+        }
     }
 
     fn get_operand_value(&self, system: &mut System) -> usize{
@@ -174,7 +182,7 @@ impl Operand for Register{
                     Register::F => system.f.clone(),
                     Register::H => system.h.clone(),
                     Register::L => system.l.clone(),
-                    _ => {panic!("[ERROR] An union register can not be an recursive type or the PC/SP")}
+                    _ => panic!("[ERROR] An union register can not be an recursive type or the PC/SP")
                 };
                 let lbyte = match r2.as_ref(){
                     Register::A => system.a.clone(),
@@ -185,7 +193,7 @@ impl Operand for Register{
                     Register::F => system.f.clone(),
                     Register::H => system.h.clone(),
                     Register::L => system.l.clone(),
-                    _ => {panic!("[ERROR] An union register can not be an recursive type or the PC/SP")}
+                    _ => panic!("[ERROR] An union register can not be an recursive type or the PC/SP")
                 };
                 i16::from_be_bytes([hbyte, lbyte]) as usize
             },
@@ -197,7 +205,7 @@ impl Operand for Register{
             Register::F => {system.f as usize},
             Register::H => {system.h as usize},
             Register::L => {system.l as usize},
-            _ => {panic!("[ERROR] SP and PC can not be an operand register")}
+            _ => panic!("[ERROR] SP and PC can not be an operand register")
         }
     }
 

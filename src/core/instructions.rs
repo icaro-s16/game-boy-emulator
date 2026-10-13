@@ -3,52 +3,90 @@ use crate::core::{
     system::System
 };
 
-fn ld(opcode: &Opcode, system: &mut System){
-    if let OperandSet::Binary(ref op1, ref op2) = opcode.operand{
-        op1.update_system(op2.get_operand_value(system), system);
-    } 
-    else {
-        panic!("[ERROR] LD Instructions should have two operands")
-    }
-}
+pub fn nop(_opcode: &Opcode, _system: &mut System){}
 
-fn inc(opcode: &Opcode, system: &mut System){
-    if let OperandSet::Unary(ref op) = opcode.operand{
-        let value = op.get_operand_value(system) + 1;
-        op.update_system(value, system);
-    }  
-    else {
-        panic!("[ERROR] INC Instructions should have one operands")
-    }  
-}
+pub fn ld(opcode: &Opcode, system: &mut System){}
 
-fn dec(opcode: &Opcode, system: &mut System){
-    if let OperandSet::Unary(ref op) = opcode.operand{
-        let value = op.get_operand_value(system) - 1;
-        op.update_system(value, system);
-    }  
-    else {
-        panic!("[ERROR] DEC Instructions should have one operands")
-    }  
-}
+pub fn inc(opcode: &Opcode, system: &mut System){}
 
-fn add(opcode: &Opcode, system: &mut System){
-    if let OperandSet::Binary(ref op1, ref op2) = opcode.operand{
-        op1.update_system(
-            op1.get_operand_value(system) + op2.get_operand_value(system), 
-            system
-        );
-    } 
-    else {
-        panic!("[ERROR] ADD Instructions should have two operands")
-    } 
-}
+pub fn dec(opcode: &Opcode, system: &mut System){}
 
-fn sub(opcode: &Opcode, system: &mut System){
-    if let OperandSet::Unary(ref op) = opcode.operand{
-        system.a -= op.get_operand_value(system) as u8;
-    }  
-    else {
-        panic!("[ERROR] SUB Instructions should have one operands")
-    } 
-}
+pub fn add(opcode: &Opcode, system: &mut System){}
+
+pub fn sub(opcode: &Opcode, system: &mut System){}
+
+pub fn rlca(opcode: &Opcode, system: &mut System){}
+
+pub fn rrca(opcode: &Opcode, system: &mut System){}
+
+pub fn rla(opcode: &Opcode, system: &mut System){}
+
+pub fn rra(opcode: &Opcode, system: &mut System){}
+
+pub fn daa(opcode: &Opcode, system: &mut System){}
+
+pub fn cpl(opcode: &Opcode, system: &mut System){}
+
+pub fn scf(opcode: &Opcode, system: &mut System){}
+
+pub fn ccf(opcode: &Opcode, system: &mut System){}
+
+pub fn jr(opcode: &Opcode, system: &mut System){}
+
+pub fn stop(opcode: &Opcode, system: &mut System){}
+
+pub fn halt(opcode: &Opcode, system: &mut System){}
+
+pub fn adc(opcode: &Opcode, system: &mut System){}
+
+pub fn sbc(opcode: &Opcode, system: &mut System){}
+
+pub fn and(opcode: &Opcode, system: &mut System){}
+
+pub fn xor(opcode: &Opcode, system: &mut System){}
+
+pub fn or(opcode: &Opcode, system: &mut System){}
+
+pub fn cp(opcode: &Opcode, system: &mut System){}
+
+pub fn ret(opcode: &Opcode, system: &mut System){}
+
+pub fn reti(opcode: &Opcode, system: &mut System){}
+
+pub fn jp(opcode: &Opcode, system: &mut System){}
+
+pub fn call(opcode: &Opcode, system: &mut System){}
+
+pub fn rst(opcode: &Opcode, system: &mut System){}
+
+pub fn pop(opcode: &Opcode, system: &mut System){}
+
+pub fn push(opcode: &Opcode, system: &mut System){}
+
+pub fn ldh(opcode: &Opcode, system: &mut System){}
+
+pub fn di(opcode: &Opcode, system: &mut System){}
+
+pub fn ei(opcode: &Opcode, system: &mut System){}
+
+pub fn rlc(opcode: &Opcode, system: &mut System){}
+
+pub fn rrc(opcode: &Opcode, system: &mut System){}
+
+pub fn rl(opcode: &Opcode, system: &mut System){}
+
+pub fn rr(opcode: &Opcode, system: &mut System){}
+
+pub fn sla(opcode: &Opcode, system: &mut System){}
+
+pub fn sra(opcode: &Opcode, system: &mut System){}
+
+pub fn swap(opcode: &Opcode, system: &mut System){}
+
+pub fn srl(opcode: &Opcode, system: &mut System){}
+
+pub fn bit(opcode: &Opcode, system: &mut System){}
+
+pub fn res(opcode: &Opcode, system: &mut System){}
+
+pub fn set(opcode: &Opcode, system: &mut System){}
