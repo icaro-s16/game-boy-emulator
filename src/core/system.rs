@@ -22,6 +22,14 @@ pub enum Register{
     SP
 }
 
+#[derive(Debug, Clone)]
+pub enum Flag{
+    Z(bool),
+    N(bool),
+    H(bool),
+    C(bool)
+}
+
 pub struct System{
     pub wram: [Byte; MEMORY_SIZE],
     pub vram: [Byte; MEMORY_SIZE],
@@ -40,16 +48,16 @@ pub struct System{
 }
 
 impl System{
-    pub fn fetch_instruction(&mut self) -> Opcode{
-        let first_byte = self.vram[self.pc as usize];
+    pub fn fetch_opcode(&mut self) -> Opcode{
+        let opcode = self.vram[self.pc as usize];
         self.pc += 1;
-        if first_byte == 0xCB{
-            let first_byte = self.vram[self.pc as usize];
+        if opcode == 0xCB{
+            let opcode = self.vram[self.pc as usize];
             self.pc += 1;
-            self.prefixed_opcodes_map[first_byte as usize].clone()
+            self.prefixed_opcodes_map[opcode as usize].clone()
         }
         else{
-            self.opcodes_map[first_byte as usize].clone().unwrap()
+            self.opcodes_map[opcode as usize].clone().unwrap()
         }
     }
 

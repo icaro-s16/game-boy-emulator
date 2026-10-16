@@ -5,7 +5,74 @@ use crate::core::{
 
 pub fn nop(_opcode: &Opcode, _system: &mut System){}
 
-pub fn ld(opcode: &Opcode, system: &mut System){}
+pub fn ld(opcode: &Opcode, system: &mut System){
+    if let OperandSet::Binary(ref op1, ref op2) = opcode.operand {
+        let raw = opcode.raw;
+        match raw{
+            /* LD HL, SP + e8 */
+            0xF8 => {
+                op1.update(
+                    op2.get_value(system) + system.sp as usize, 
+                    0,
+                    system
+                );
+            }
+            /* LD A, [HL-] | LD A, [HL+]*/
+            0x3A | 0x2A => {
+                op1.update(
+                    op2.get_value(system), 
+                    0,
+                    system
+                );
+
+                op2.update(
+                    if raw == 0x3A{op2.get_value(system) - 1} 
+                    else {op2.get_value(system) + 1}, 
+                    0,
+                    system
+                );
+            }
+            /* LD [HL-], A | LD [HL+], A*/
+            0x32 | 0x22=> {
+                op1.update(
+                    op2.get_value(system), 
+                    0,
+                    system
+                );
+
+                op1.update(
+                    if raw == 0x3A{op1.get_value(system) - 1} 
+                    else {op1.get_value(system) + 1}, 
+                    0,
+                    system
+                );
+            }
+            _ => {
+                op1.update(
+                    op2.get_value(system), 
+                    0,
+                    system
+                );
+            }
+        }
+    }
+    else {
+        panic!("[ERROR] LD instructions should have two operands");
+    }
+}
+
+pub fn ldh(opcode: &Opcode, system: &mut System){
+    if let OperandSet::Binary(ref op1, ref op2) = opcode.operand {
+        op1.update(
+            op2.get_value(system),
+            0xFF, 
+            system
+        );
+    }
+    else {
+        panic!("[ERROR] LD instructions should have two operands");
+    }
+}
 
 pub fn inc(opcode: &Opcode, system: &mut System){}
 
@@ -62,8 +129,6 @@ pub fn rst(opcode: &Opcode, system: &mut System){}
 pub fn pop(opcode: &Opcode, system: &mut System){}
 
 pub fn push(opcode: &Opcode, system: &mut System){}
-
-pub fn ldh(opcode: &Opcode, system: &mut System){}
 
 pub fn di(opcode: &Opcode, system: &mut System){}
 
