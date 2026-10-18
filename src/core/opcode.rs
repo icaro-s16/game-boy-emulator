@@ -1,3 +1,6 @@
+use core::panic;
+use std::{any::Any, unreachable};
+
 use crate::core::system::{
     Flag, Register, System
 };
@@ -10,10 +13,8 @@ pub struct Opcode{
     pub cycles: Vec<u8>
 }
 pub trait Operand{
-    /* Source - https://stackoverflow.com/a/65204236
-     * Posted by Freyja, modified by community. See post 'Timeline' for change history
-     * Retrieved 2026-10-07, License - CC BY-SA 4.0
-     */
+    fn as_any(&self) -> &dyn Any;
+    
     fn clone_box(&self) -> Box<dyn Operand>; 
 
     fn get_type(&self) -> OperandType;
@@ -25,7 +26,7 @@ pub trait Operand{
      */
     fn get_value(&self, system: &mut System) -> usize;
     
-    fn update(&self, _value: usize, _offset: usize, _system: &mut System){
+    fn update(&self, _value: usize, _system: &mut System){
         panic!("[ERROR] The operand can not be updated")
     }
 }
@@ -79,6 +80,10 @@ impl Clone for Box<dyn Operand>{
 }
 
 impl Operand for Address{
+    fn as_any(&self) -> &dyn Any{
+        self
+    }
+
     fn clone_box(&self) -> Box<dyn Operand>{
         Box::new(self.clone())
     }
@@ -96,17 +101,41 @@ impl Operand for Address{
             panic!("[ERROR] The value inside of an address can not be an address, a flag or a literal");
         }
 
-        system.vram[
+        system.wram[
             self.0.get_value(system)
         ] as usize
     }
 
-    fn update(&self, value: usize, offset: usize, system: &mut System){
-        system.vram[self.0.get_value(system) + offset] = value as u8;
+    fn update(&self, value: usize, system: &mut System){
+        system.wram[self.0.get_value(system)] = value as u8;
+    }
+}
+
+impl Address{
+    pub fn get_value_with_offset(&self, offset: usize, system: &mut System) -> usize{
+        if 
+            self.0.get_type() == OperandType::Address   ||
+            self.0.get_type() == OperandType::Flag      ||
+            self.0.get_type() == OperandType::Literal
+        {
+            panic!("[ERROR] The value inside of an address can not be an address, a flag or a literal");
+        }
+
+        system.wram[
+            self.0.get_value(system) + offset
+        ] as usize
+    }
+
+    pub fn update_with_offset(&self, value: usize, offset: usize, system: &mut System){
+        system.wram[self.0.get_value(system) + offset] = value as u8;
     }
 }
 
 impl Operand for I8{
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
     fn clone_box(&self) -> Box<dyn Operand> {
         Box::new(self.clone())
     }
@@ -123,6 +152,10 @@ impl Operand for I8{
 }
 
 impl Operand for U8{
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
     fn clone_box(&self) -> Box<dyn Operand> {
         Box::new(self.clone())
     }
@@ -139,6 +172,10 @@ impl Operand for U8{
 }
 
 impl Operand for U16{
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
     fn clone_box(&self) -> Box<dyn Operand> {
         Box::new(self.clone())
     }
@@ -160,6 +197,10 @@ impl Operand for U16{
 }
 
 impl Operand for Literal{
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
     fn clone_box(&self) -> Box<dyn Operand> {
         Box::new(self.clone())
     }
@@ -174,6 +215,10 @@ impl Operand for Literal{
 }
 
 impl Operand for Flag{
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
     fn clone_box(&self) -> Box<dyn Operand>{
         Box::new(self.clone())
     } 
@@ -188,23 +233,33 @@ impl Operand for Flag{
      */ 
     fn get_value(&self, system: &mut System) -> usize{
         match self{
-            Flag::Z(val) => {
-                if *val {system.get_zflag() as usize} else {!system.get_zflag() as usize}
+            Flag::Z => {
+                system.get_zflag() as usize
             },
-            Flag::C(val) => {
-                if *val {system.get_cflag() as usize} else {!system.get_cflag() as usize}
+            Flag::NZ => {
+                !system.get_zflag() as usize
+            }
+            Flag::C => {
+                system.get_cflag() as usize
             },
-            Flag::N(val) => {
-                if *val {system.get_zflag() as usize} else {!system.get_zflag() as usize}
+            Flag::NC => {
+                !system.get_cflag() as usize
+            }
+            Flag::N => {
+                system.get_zflag() as usize
             },
-            Flag::H(val) => {
-                if *val {system.get_zflag() as usize} else {!system.get_zflag() as usize}
+            Flag::H => {
+                system.get_zflag() as usize
             }
         }
     }
 }
 
 impl Operand for Register{
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
     fn clone_box(&self) -> Box<dyn Operand> {
         Box::new(self.clone())
     }
@@ -252,7 +307,7 @@ impl Operand for Register{
         }
     }
 
-    fn update(&self, value: usize, _offset: usize, system: &mut System){
+    fn update(&self, value: usize, system: &mut System){
         let word = value as u16;
         let bytes = word.to_be_bytes();
         match self {
@@ -291,6 +346,24 @@ impl Operand for Register{
             Register::SP => system.sp = word,
             Register::PC => panic!("[ERROR] PC can not be used as an operand")
         }
+    }
+}
+
+pub fn is_16bit_operand(operand: &dyn Operand) -> bool{
+    match operand.get_type(){
+        OperandType::Register => {
+            let reg = 
+                if let Some(reg) = operand.as_any().downcast_ref::<Register>() {
+                    reg
+                }
+                else {
+                    unreachable!()
+                };
+
+            if let Register::Union(_, _) = reg {true} else {false}
+        },
+        OperandType::U16 => true,
+        _ => false
     }
 }
 
@@ -357,7 +430,7 @@ pub fn build_unprefixed_map() -> [Option<Opcode>; 256] {
         Some(Opcode::new(0x1D, "DEC E", operand!((Register::E)), vec![4])),
         Some(Opcode::new(0x1E, "LD E, u8", operand!((Register::E),U8), vec![8])),
         Some(Opcode::new(0x1F, "RRA ", operand!(), vec![4])),
-        Some(Opcode::new(0x20, "JR NZ, i8", operand!((Flag::Z(false)),I8), vec![12, 8])),
+        Some(Opcode::new(0x20, "JR NZ, i8", operand!((Flag::NZ),I8), vec![12, 8])),
         Some(Opcode::new(0x21, "LD HL, u16", operand!(((Register::H),(Register::L)),U16), vec![12])),
         Some(Opcode::new(0x22, "LD [HL+], A", operand!([((Register::H),(Register::L))],(Register::A)), vec![8])),
         Some(Opcode::new(0x23, "INC HL", operand!(((Register::H),(Register::L))), vec![8])),
@@ -365,7 +438,7 @@ pub fn build_unprefixed_map() -> [Option<Opcode>; 256] {
         Some(Opcode::new(0x25, "DEC H", operand!((Register::H)), vec![4])),
         Some(Opcode::new(0x26, "LD H, u8", operand!((Register::H),U8), vec![8])),
         Some(Opcode::new(0x27, "DAA ", operand!(), vec![4])),
-        Some(Opcode::new(0x28, "JR Z, i8", operand!((Flag::Z(true)),I8), vec![12, 8])),
+        Some(Opcode::new(0x28, "JR Z, i8", operand!((Flag::Z),I8), vec![12, 8])),
         Some(Opcode::new(0x29, "ADD HL, HL", operand!(((Register::H),(Register::L)),((Register::H),(Register::L))), vec![8])),
         Some(Opcode::new(0x2A, "LD A, [HL+]", operand!((Register::A),[((Register::H),(Register::L))]), vec![8])),
         Some(Opcode::new(0x2B, "DEC HL", operand!(((Register::H),(Register::L))), vec![8])),
@@ -373,7 +446,7 @@ pub fn build_unprefixed_map() -> [Option<Opcode>; 256] {
         Some(Opcode::new(0x2D, "DEC L", operand!((Register::L)), vec![4])),
         Some(Opcode::new(0x2E, "LD L, u8", operand!((Register::L),U8), vec![8])),
         Some(Opcode::new(0x2F, "CPL ", operand!(), vec![4])),
-        Some(Opcode::new(0x30, "JR NC, i8", operand!((Flag::C(false)),I8), vec![12, 8])),
+        Some(Opcode::new(0x30, "JR NC, i8", operand!((Flag::NC),I8), vec![12, 8])),
         Some(Opcode::new(0x31, "LD SP, u16", operand!((Register::SP),U16), vec![12])),
         Some(Opcode::new(0x32, "LD [HL-], A", operand!([((Register::H),(Register::L))],(Register::A)), vec![8])),
         Some(Opcode::new(0x33, "INC SP", operand!((Register::SP)), vec![8])),
@@ -381,7 +454,7 @@ pub fn build_unprefixed_map() -> [Option<Opcode>; 256] {
         Some(Opcode::new(0x35, "DEC [HL]", operand!([((Register::H),(Register::L))]), vec![12])),
         Some(Opcode::new(0x36, "LD [HL], u8", operand!([((Register::H),(Register::L))],U8), vec![12])),
         Some(Opcode::new(0x37, "SCF ", operand!(), vec![4])),
-        Some(Opcode::new(0x38, "JR C, i8", operand!((Flag::C(true)),I8), vec![12, 8])),
+        Some(Opcode::new(0x38, "JR C, i8", operand!((Flag::C),I8), vec![12, 8])),
         Some(Opcode::new(0x39, "ADD HL, SP", operand!(((Register::H),(Register::L)),(Register::SP)), vec![8])),
         Some(Opcode::new(0x3A, "LD A, [HL-]", operand!((Register::A),[((Register::H),(Register::L))]), vec![8])),
         Some(Opcode::new(0x3B, "DEC SP", operand!((Register::SP)), vec![8])),
@@ -517,35 +590,35 @@ pub fn build_unprefixed_map() -> [Option<Opcode>; 256] {
         Some(Opcode::new(0xBD, "CP A, L", operand!((Register::A),(Register::L)), vec![4])),
         Some(Opcode::new(0xBE, "CP A, [HL]", operand!((Register::A),[((Register::H),(Register::L))]), vec![8])),
         Some(Opcode::new(0xBF, "CP A, A", operand!((Register::A),(Register::A)), vec![4])),
-        Some(Opcode::new(0xC0, "RET NZ", operand!((Flag::Z(false))), vec![20, 8])),
+        Some(Opcode::new(0xC0, "RET NZ", operand!((Flag::NZ)), vec![20, 8])),
         Some(Opcode::new(0xC1, "POP BC", operand!(((Register::B),(Register::C))), vec![12])),
-        Some(Opcode::new(0xC2, "JP NZ, u16", operand!((Flag::Z(false)),U16), vec![16, 12])),
+        Some(Opcode::new(0xC2, "JP NZ, u16", operand!((Flag::NZ),U16), vec![16, 12])),
         Some(Opcode::new(0xC3, "JP u16", operand!(U16), vec![16])),
-        Some(Opcode::new(0xC4, "CALL NZ, u16", operand!((Flag::Z(false)),U16), vec![24, 12])),
+        Some(Opcode::new(0xC4, "CALL NZ, u16", operand!((Flag::NZ),U16), vec![24, 12])),
         Some(Opcode::new(0xC5, "PUSH BC", operand!(((Register::B),(Register::C))), vec![16])),
         Some(Opcode::new(0xC6, "ADD A, u8", operand!((Register::A),U8), vec![8])),
         Some(Opcode::new(0xC7, "RST $00", operand!((Literal(0x00))), vec![16])),
-        Some(Opcode::new(0xC8, "RET Z", operand!((Flag::Z(true))), vec![20, 8])),
+        Some(Opcode::new(0xC8, "RET Z", operand!((Flag::Z)), vec![20, 8])),
         Some(Opcode::new(0xC9, "RET ", operand!(), vec![16])),
-        Some(Opcode::new(0xCA, "JP Z, u16", operand!((Flag::Z(true)),U16), vec![16, 12])),
+        Some(Opcode::new(0xCA, "JP Z, u16", operand!((Flag::Z),U16), vec![16, 12])),
         Some(Opcode::new(0xCB, "PREFIX ", operand!(), vec![4])),
-        Some(Opcode::new(0xCC, "CALL Z, u16", operand!((Flag::Z(true)),U16), vec![24, 12])),
+        Some(Opcode::new(0xCC, "CALL Z, u16", operand!((Flag::Z),U16), vec![24, 12])),
         Some(Opcode::new(0xCD, "CALL u16", operand!(U16), vec![24])),
         Some(Opcode::new(0xCE, "ADC A, u8", operand!((Register::A),U8), vec![8])),
         Some(Opcode::new(0xCF, "RST $08", operand!((Literal(0x08))), vec![16])),
-        Some(Opcode::new(0xD0, "RET NC", operand!((Flag::C(false))), vec![20, 8])),
+        Some(Opcode::new(0xD0, "RET NC", operand!((Flag::NC)), vec![20, 8])),
         Some(Opcode::new(0xD1, "POP DE", operand!(((Register::D),(Register::E))), vec![12])),
-        Some(Opcode::new(0xD2, "JP NC, u16", operand!((Flag::C(false)),U16), vec![16, 12])),
+        Some(Opcode::new(0xD2, "JP NC, u16", operand!((Flag::NC),U16), vec![16, 12])),
         None,
-        Some(Opcode::new(0xD4, "CALL NC, u16", operand!((Flag::C(false)),U16), vec![24, 12])),
+        Some(Opcode::new(0xD4, "CALL NC, u16", operand!((Flag::NC),U16), vec![24, 12])),
         Some(Opcode::new(0xD5, "PUSH DE", operand!(((Register::D),(Register::E))), vec![16])),
         Some(Opcode::new(0xD6, "SUB A, u8", operand!((Register::A),U8), vec![8])),
         Some(Opcode::new(0xD7, "RST $10", operand!((Literal(0x10))), vec![16])),
-        Some(Opcode::new(0xD8, "RET C", operand!((Flag::C(true))), vec![20, 8])),
+        Some(Opcode::new(0xD8, "RET C", operand!((Flag::C)), vec![20, 8])),
         Some(Opcode::new(0xD9, "RETI ", operand!(), vec![16])),
-        Some(Opcode::new(0xDA, "JP C, u16", operand!((Flag::C(true)),U16), vec![16, 12])),
+        Some(Opcode::new(0xDA, "JP C, u16", operand!((Flag::C),U16), vec![16, 12])),
         None,
-        Some(Opcode::new(0xDC, "CALL C, u16", operand!((Flag::C(true)),U16), vec![24, 12])),
+        Some(Opcode::new(0xDC, "CALL C, u16", operand!((Flag::C),U16), vec![24, 12])),
         None,
         Some(Opcode::new(0xDE, "SBC A, u8", operand!((Register::A),U8), vec![8])),
         Some(Opcode::new(0xDF, "RST $18", operand!((Literal(0x18))), vec![16])),
@@ -573,7 +646,7 @@ pub fn build_unprefixed_map() -> [Option<Opcode>; 256] {
         Some(Opcode::new(0xF5, "PUSH AF", operand!(((Register::A),(Register::F))), vec![16])),
         Some(Opcode::new(0xF6, "OR A, u8", operand!((Register::A),U8), vec![8])),
         Some(Opcode::new(0xF7, "RST $30", operand!((Literal(0x30))), vec![16])),
-        Some(Opcode::new(0xF8, "LD HL, SP + i8", operand!(((Register::H),(Register::L)),I8), vec![12])),
+        Some(Opcode::new(0xF8, "LD HL, SP + i8", operand!(((Register::H),(Register::L)), I8), vec![12])),
         Some(Opcode::new(0xF9, "LD SP, HL", operand!((Register::SP),((Register::H),(Register::L))), vec![8])),
         Some(Opcode::new(0xFA, "LD A, [u16]", operand!((Register::A),[U16]), vec![16])),
         Some(Opcode::new(0xFB, "EI ", operand!(), vec![4])),
@@ -586,261 +659,261 @@ pub fn build_unprefixed_map() -> [Option<Opcode>; 256] {
 
 pub fn build_prefixed_map() -> [Opcode; 256] {
     [
-        Opcode::new(0x00, "RLC B", operand!((Register::B)), vec![8]),
-        Opcode::new(0x01, "RLC C", operand!((Register::C)), vec![8]),
-        Opcode::new(0x02, "RLC D", operand!((Register::D)), vec![8]),
-        Opcode::new(0x03, "RLC E", operand!((Register::E)), vec![8]),
-        Opcode::new(0x04, "RLC H", operand!((Register::H)), vec![8]),
-        Opcode::new(0x05, "RLC L", operand!((Register::L)), vec![8]),
-        Opcode::new(0x06, "RLC HL", operand!([((Register::H),(Register::L))]), vec![16]),
-        Opcode::new(0x07, "RLC A", operand!((Register::A)), vec![8]),
-        Opcode::new(0x08, "RRC B", operand!((Register::B)), vec![8]),
-        Opcode::new(0x09, "RRC C", operand!((Register::C)), vec![8]),
-        Opcode::new(0x0A, "RRC D", operand!((Register::D)), vec![8]),
-        Opcode::new(0x0B, "RRC E", operand!((Register::E)), vec![8]),
-        Opcode::new(0x0C, "RRC H", operand!((Register::H)), vec![8]),
-        Opcode::new(0x0D, "RRC L", operand!((Register::L)), vec![8]),
-        Opcode::new(0x0E, "RRC HL", operand!([((Register::H),(Register::L))]), vec![16]),
-        Opcode::new(0x0F, "RRC A", operand!((Register::A)), vec![8]),
-        Opcode::new(0x10, "RL B", operand!((Register::B)), vec![8]),
-        Opcode::new(0x11, "RL C", operand!((Register::C)), vec![8]),
-        Opcode::new(0x12, "RL D", operand!((Register::D)), vec![8]),
-        Opcode::new(0x13, "RL E", operand!((Register::E)), vec![8]),
-        Opcode::new(0x14, "RL H", operand!((Register::H)), vec![8]),
-        Opcode::new(0x15, "RL L", operand!((Register::L)), vec![8]),
-        Opcode::new(0x16, "RL HL", operand!([((Register::H),(Register::L))]), vec![16]),
-        Opcode::new(0x17, "RL A", operand!((Register::A)), vec![8]),
-        Opcode::new(0x18, "RR B", operand!((Register::B)), vec![8]),
-        Opcode::new(0x19, "RR C", operand!((Register::C)), vec![8]),
-        Opcode::new(0x1A, "RR D", operand!((Register::D)), vec![8]),
-        Opcode::new(0x1B, "RR E", operand!((Register::E)), vec![8]),
-        Opcode::new(0x1C, "RR H", operand!((Register::H)), vec![8]),
-        Opcode::new(0x1D, "RR L", operand!((Register::L)), vec![8]),
-        Opcode::new(0x1E, "RR HL", operand!([((Register::H),(Register::L))]), vec![16]),
-        Opcode::new(0x1F, "RR A", operand!((Register::A)), vec![8]),
-        Opcode::new(0x20, "SLA B", operand!((Register::B)), vec![8]),
-        Opcode::new(0x21, "SLA C", operand!((Register::C)), vec![8]),
-        Opcode::new(0x22, "SLA D", operand!((Register::D)), vec![8]),
-        Opcode::new(0x23, "SLA E", operand!((Register::E)), vec![8]),
-        Opcode::new(0x24, "SLA H", operand!((Register::H)), vec![8]),
-        Opcode::new(0x25, "SLA L", operand!((Register::L)), vec![8]),
-        Opcode::new(0x26, "SLA HL", operand!([((Register::H),(Register::L))]), vec![16]),
-        Opcode::new(0x27, "SLA A", operand!((Register::A)), vec![8]),
-        Opcode::new(0x28, "SRA B", operand!((Register::B)), vec![8]),
-        Opcode::new(0x29, "SRA C", operand!((Register::C)), vec![8]),
-        Opcode::new(0x2A, "SRA D", operand!((Register::D)), vec![8]),
-        Opcode::new(0x2B, "SRA E", operand!((Register::E)), vec![8]),
-        Opcode::new(0x2C, "SRA H", operand!((Register::H)), vec![8]),
-        Opcode::new(0x2D, "SRA L", operand!((Register::L)), vec![8]),
-        Opcode::new(0x2E, "SRA HL", operand!([((Register::H),(Register::L))]), vec![16]),
-        Opcode::new(0x2F, "SRA A", operand!((Register::A)), vec![8]),
-        Opcode::new(0x30, "SWAP B", operand!((Register::B)), vec![8]),
-        Opcode::new(0x31, "SWAP C", operand!((Register::C)), vec![8]),
-        Opcode::new(0x32, "SWAP D", operand!((Register::D)), vec![8]),
-        Opcode::new(0x33, "SWAP E", operand!((Register::E)), vec![8]),
-        Opcode::new(0x34, "SWAP H", operand!((Register::H)), vec![8]),
-        Opcode::new(0x35, "SWAP L", operand!((Register::L)), vec![8]),
-        Opcode::new(0x36, "SWAP HL", operand!([((Register::H),(Register::L))]), vec![16]),
-        Opcode::new(0x37, "SWAP A", operand!((Register::A)), vec![8]),
-        Opcode::new(0x38, "SRL B", operand!((Register::B)), vec![8]),
-        Opcode::new(0x39, "SRL C", operand!((Register::C)), vec![8]),
-        Opcode::new(0x3A, "SRL D", operand!((Register::D)), vec![8]),
-        Opcode::new(0x3B, "SRL E", operand!((Register::E)), vec![8]),
-        Opcode::new(0x3C, "SRL H", operand!((Register::H)), vec![8]),
-        Opcode::new(0x3D, "SRL L", operand!((Register::L)), vec![8]),
-        Opcode::new(0x3E, "SRL HL", operand!([((Register::H),(Register::L))]), vec![16]),
-        Opcode::new(0x3F, "SRL A", operand!((Register::A)), vec![8]),
-        Opcode::new(0x40, "BIT 0, B", operand!((Literal(0)),(Register::B)), vec![8]),
-        Opcode::new(0x41, "BIT 0, C", operand!((Literal(0)),(Register::C)), vec![8]),
-        Opcode::new(0x42, "BIT 0, D", operand!((Literal(0)),(Register::D)), vec![8]),
-        Opcode::new(0x43, "BIT 0, E", operand!((Literal(0)),(Register::E)), vec![8]),
-        Opcode::new(0x44, "BIT 0, H", operand!((Literal(0)),(Register::H)), vec![8]),
-        Opcode::new(0x45, "BIT 0, L", operand!((Literal(0)),(Register::L)), vec![8]),
-        Opcode::new(0x46, "BIT 0, HL", operand!((Literal(0)),[((Register::H),(Register::L))]), vec![12]),
-        Opcode::new(0x47, "BIT 0, A", operand!((Literal(0)),(Register::A)), vec![8]),
-        Opcode::new(0x48, "BIT 1, B", operand!((Literal(1)),(Register::B)), vec![8]),
-        Opcode::new(0x49, "BIT 1, C", operand!((Literal(1)),(Register::C)), vec![8]),
-        Opcode::new(0x4A, "BIT 1, D", operand!((Literal(1)),(Register::D)), vec![8]),
-        Opcode::new(0x4B, "BIT 1, E", operand!((Literal(1)),(Register::E)), vec![8]),
-        Opcode::new(0x4C, "BIT 1, H", operand!((Literal(1)),(Register::H)), vec![8]),
-        Opcode::new(0x4D, "BIT 1, L", operand!((Literal(1)),(Register::L)), vec![8]),
-        Opcode::new(0x4E, "BIT 1, HL", operand!((Literal(1)),[((Register::H),(Register::L))]), vec![12]),
-        Opcode::new(0x4F, "BIT 1, A", operand!((Literal(1)),(Register::A)), vec![8]),
-        Opcode::new(0x50, "BIT 2, B", operand!((Literal(2)),(Register::B)), vec![8]),
-        Opcode::new(0x51, "BIT 2, C", operand!((Literal(2)),(Register::C)), vec![8]),
-        Opcode::new(0x52, "BIT 2, D", operand!((Literal(2)),(Register::D)), vec![8]),
-        Opcode::new(0x53, "BIT 2, E", operand!((Literal(2)),(Register::E)), vec![8]),
-        Opcode::new(0x54, "BIT 2, H", operand!((Literal(2)),(Register::H)), vec![8]),
-        Opcode::new(0x55, "BIT 2, L", operand!((Literal(2)),(Register::L)), vec![8]),
-        Opcode::new(0x56, "BIT 2, HL", operand!((Literal(2)),[((Register::H),(Register::L))]), vec![12]),
-        Opcode::new(0x57, "BIT 2, A", operand!((Literal(2)),(Register::A)), vec![8]),
-        Opcode::new(0x58, "BIT 3, B", operand!((Literal(3)),(Register::B)), vec![8]),
-        Opcode::new(0x59, "BIT 3, C", operand!((Literal(3)),(Register::C)), vec![8]),
-        Opcode::new(0x5A, "BIT 3, D", operand!((Literal(3)),(Register::D)), vec![8]),
-        Opcode::new(0x5B, "BIT 3, E", operand!((Literal(3)),(Register::E)), vec![8]),
-        Opcode::new(0x5C, "BIT 3, H", operand!((Literal(3)),(Register::H)), vec![8]),
-        Opcode::new(0x5D, "BIT 3, L", operand!((Literal(3)),(Register::L)), vec![8]),
-        Opcode::new(0x5E, "BIT 3, HL", operand!((Literal(3)),[((Register::H),(Register::L))]), vec![12]),
-        Opcode::new(0x5F, "BIT 3, A", operand!((Literal(3)),(Register::A)), vec![8]),
-        Opcode::new(0x60, "BIT 4, B", operand!((Literal(4)),(Register::B)), vec![8]),
-        Opcode::new(0x61, "BIT 4, C", operand!((Literal(4)),(Register::C)), vec![8]),
-        Opcode::new(0x62, "BIT 4, D", operand!((Literal(4)),(Register::D)), vec![8]),
-        Opcode::new(0x63, "BIT 4, E", operand!((Literal(4)),(Register::E)), vec![8]),
-        Opcode::new(0x64, "BIT 4, H", operand!((Literal(4)),(Register::H)), vec![8]),
-        Opcode::new(0x65, "BIT 4, L", operand!((Literal(4)),(Register::L)), vec![8]),
-        Opcode::new(0x66, "BIT 4, HL", operand!((Literal(4)),[((Register::H),(Register::L))]), vec![12]),
-        Opcode::new(0x67, "BIT 4, A", operand!((Literal(4)),(Register::A)), vec![8]),
-        Opcode::new(0x68, "BIT 5, B", operand!((Literal(5)),(Register::B)), vec![8]),
-        Opcode::new(0x69, "BIT 5, C", operand!((Literal(5)),(Register::C)), vec![8]),
-        Opcode::new(0x6A, "BIT 5, D", operand!((Literal(5)),(Register::D)), vec![8]),
-        Opcode::new(0x6B, "BIT 5, E", operand!((Literal(5)),(Register::E)), vec![8]),
-        Opcode::new(0x6C, "BIT 5, H", operand!((Literal(5)),(Register::H)), vec![8]),
-        Opcode::new(0x6D, "BIT 5, L", operand!((Literal(5)),(Register::L)), vec![8]),
-        Opcode::new(0x6E, "BIT 5, HL", operand!((Literal(5)),[((Register::H),(Register::L))]), vec![12]),
-        Opcode::new(0x6F, "BIT 5, A", operand!((Literal(5)),(Register::A)), vec![8]),
-        Opcode::new(0x70, "BIT 6, B", operand!((Literal(6)),(Register::B)), vec![8]),
-        Opcode::new(0x71, "BIT 6, C", operand!((Literal(6)),(Register::C)), vec![8]),
-        Opcode::new(0x72, "BIT 6, D", operand!((Literal(6)),(Register::D)), vec![8]),
-        Opcode::new(0x73, "BIT 6, E", operand!((Literal(6)),(Register::E)), vec![8]),
-        Opcode::new(0x74, "BIT 6, H", operand!((Literal(6)),(Register::H)), vec![8]),
-        Opcode::new(0x75, "BIT 6, L", operand!((Literal(6)),(Register::L)), vec![8]),
-        Opcode::new(0x76, "BIT 6, HL", operand!((Literal(6)),[((Register::H),(Register::L))]), vec![12]),
-        Opcode::new(0x77, "BIT 6, A", operand!((Literal(6)),(Register::A)), vec![8]),
-        Opcode::new(0x78, "BIT 7, B", operand!((Literal(7)),(Register::B)), vec![8]),
-        Opcode::new(0x79, "BIT 7, C", operand!((Literal(7)),(Register::C)), vec![8]),
-        Opcode::new(0x7A, "BIT 7, D", operand!((Literal(7)),(Register::D)), vec![8]),
-        Opcode::new(0x7B, "BIT 7, E", operand!((Literal(7)),(Register::E)), vec![8]),
-        Opcode::new(0x7C, "BIT 7, H", operand!((Literal(7)),(Register::H)), vec![8]),
-        Opcode::new(0x7D, "BIT 7, L", operand!((Literal(7)),(Register::L)), vec![8]),
-        Opcode::new(0x7E, "BIT 7, HL", operand!((Literal(7)),[((Register::H),(Register::L))]), vec![12]),
-        Opcode::new(0x7F, "BIT 7, A", operand!((Literal(7)),(Register::A)), vec![8]),
-        Opcode::new(0x80, "RES 0, B", operand!((Literal(0)),(Register::B)), vec![8]),
-        Opcode::new(0x81, "RES 0, C", operand!((Literal(0)),(Register::C)), vec![8]),
-        Opcode::new(0x82, "RES 0, D", operand!((Literal(0)),(Register::D)), vec![8]),
-        Opcode::new(0x83, "RES 0, E", operand!((Literal(0)),(Register::E)), vec![8]),
-        Opcode::new(0x84, "RES 0, H", operand!((Literal(0)),(Register::H)), vec![8]),
-        Opcode::new(0x85, "RES 0, L", operand!((Literal(0)),(Register::L)), vec![8]),
-        Opcode::new(0x86, "RES 0, HL", operand!((Literal(0)),[((Register::H),(Register::L))]), vec![16]),
-        Opcode::new(0x87, "RES 0, A", operand!((Literal(0)),(Register::A)), vec![8]),
-        Opcode::new(0x88, "RES 1, B", operand!((Literal(1)),(Register::B)), vec![8]),
-        Opcode::new(0x89, "RES 1, C", operand!((Literal(1)),(Register::C)), vec![8]),
-        Opcode::new(0x8A, "RES 1, D", operand!((Literal(1)),(Register::D)), vec![8]),
-        Opcode::new(0x8B, "RES 1, E", operand!((Literal(1)),(Register::E)), vec![8]),
-        Opcode::new(0x8C, "RES 1, H", operand!((Literal(1)),(Register::H)), vec![8]),
-        Opcode::new(0x8D, "RES 1, L", operand!((Literal(1)),(Register::L)), vec![8]),
-        Opcode::new(0x8E, "RES 1, HL", operand!((Literal(1)),[((Register::H),(Register::L))]), vec![16]),
-        Opcode::new(0x8F, "RES 1, A", operand!((Literal(1)),(Register::A)), vec![8]),
-        Opcode::new(0x90, "RES 2, B", operand!((Literal(2)),(Register::B)), vec![8]),
-        Opcode::new(0x91, "RES 2, C", operand!((Literal(2)),(Register::C)), vec![8]),
-        Opcode::new(0x92, "RES 2, D", operand!((Literal(2)),(Register::D)), vec![8]),
-        Opcode::new(0x93, "RES 2, E", operand!((Literal(2)),(Register::E)), vec![8]),
-        Opcode::new(0x94, "RES 2, H", operand!((Literal(2)),(Register::H)), vec![8]),
-        Opcode::new(0x95, "RES 2, L", operand!((Literal(2)),(Register::L)), vec![8]),
-        Opcode::new(0x96, "RES 2, HL", operand!((Literal(2)),[((Register::H),(Register::L))]), vec![16]),
-        Opcode::new(0x97, "RES 2, A", operand!((Literal(2)),(Register::A)), vec![8]),
-        Opcode::new(0x98, "RES 3, B", operand!((Literal(3)),(Register::B)), vec![8]),
-        Opcode::new(0x99, "RES 3, C", operand!((Literal(3)),(Register::C)), vec![8]),
-        Opcode::new(0x9A, "RES 3, D", operand!((Literal(3)),(Register::D)), vec![8]),
-        Opcode::new(0x9B, "RES 3, E", operand!((Literal(3)),(Register::E)), vec![8]),
-        Opcode::new(0x9C, "RES 3, H", operand!((Literal(3)),(Register::H)), vec![8]),
-        Opcode::new(0x9D, "RES 3, L", operand!((Literal(3)),(Register::L)), vec![8]),
-        Opcode::new(0x9E, "RES 3, HL", operand!((Literal(3)),[((Register::H),(Register::L))]), vec![16]),
-        Opcode::new(0x9F, "RES 3, A", operand!((Literal(3)),(Register::A)), vec![8]),
-        Opcode::new(0xA0, "RES 4, B", operand!((Literal(4)),(Register::B)), vec![8]),
-        Opcode::new(0xA1, "RES 4, C", operand!((Literal(4)),(Register::C)), vec![8]),
-        Opcode::new(0xA2, "RES 4, D", operand!((Literal(4)),(Register::D)), vec![8]),
-        Opcode::new(0xA3, "RES 4, E", operand!((Literal(4)),(Register::E)), vec![8]),
-        Opcode::new(0xA4, "RES 4, H", operand!((Literal(4)),(Register::H)), vec![8]),
-        Opcode::new(0xA5, "RES 4, L", operand!((Literal(4)),(Register::L)), vec![8]),
-        Opcode::new(0xA6, "RES 4, HL", operand!((Literal(4)),[((Register::H),(Register::L))]), vec![16]),
-        Opcode::new(0xA7, "RES 4, A", operand!((Literal(4)),(Register::A)), vec![8]),
-        Opcode::new(0xA8, "RES 5, B", operand!((Literal(5)),(Register::B)), vec![8]),
-        Opcode::new(0xA9, "RES 5, C", operand!((Literal(5)),(Register::C)), vec![8]),
-        Opcode::new(0xAA, "RES 5, D", operand!((Literal(5)),(Register::D)), vec![8]),
-        Opcode::new(0xAB, "RES 5, E", operand!((Literal(5)),(Register::E)), vec![8]),
-        Opcode::new(0xAC, "RES 5, H", operand!((Literal(5)),(Register::H)), vec![8]),
-        Opcode::new(0xAD, "RES 5, L", operand!((Literal(5)),(Register::L)), vec![8]),
-        Opcode::new(0xAE, "RES 5, HL", operand!((Literal(5)),[((Register::H),(Register::L))]), vec![16]),
-        Opcode::new(0xAF, "RES 5, A", operand!((Literal(5)),(Register::A)), vec![8]),
-        Opcode::new(0xB0, "RES 6, B", operand!((Literal(6)),(Register::B)), vec![8]),
-        Opcode::new(0xB1, "RES 6, C", operand!((Literal(6)),(Register::C)), vec![8]),
-        Opcode::new(0xB2, "RES 6, D", operand!((Literal(6)),(Register::D)), vec![8]),
-        Opcode::new(0xB3, "RES 6, E", operand!((Literal(6)),(Register::E)), vec![8]),
-        Opcode::new(0xB4, "RES 6, H", operand!((Literal(6)),(Register::H)), vec![8]),
-        Opcode::new(0xB5, "RES 6, L", operand!((Literal(6)),(Register::L)), vec![8]),
-        Opcode::new(0xB6, "RES 6, HL", operand!((Literal(6)),[((Register::H),(Register::L))]), vec![16]),
-        Opcode::new(0xB7, "RES 6, A", operand!((Literal(6)),(Register::A)), vec![8]),
-        Opcode::new(0xB8, "RES 7, B", operand!((Literal(7)),(Register::B)), vec![8]),
-        Opcode::new(0xB9, "RES 7, C", operand!((Literal(7)),(Register::C)), vec![8]),
-        Opcode::new(0xBA, "RES 7, D", operand!((Literal(7)),(Register::D)), vec![8]),
-        Opcode::new(0xBB, "RES 7, E", operand!((Literal(7)),(Register::E)), vec![8]),
-        Opcode::new(0xBC, "RES 7, H", operand!((Literal(7)),(Register::H)), vec![8]),
-        Opcode::new(0xBD, "RES 7, L", operand!((Literal(7)),(Register::L)), vec![8]),
-        Opcode::new(0xBE, "RES 7, HL", operand!((Literal(7)),[((Register::H),(Register::L))]), vec![16]),
-        Opcode::new(0xBF, "RES 7, A", operand!((Literal(7)),(Register::A)), vec![8]),
-        Opcode::new(0xC0, "SET 0, B", operand!((Literal(0)),(Register::B)), vec![8]),
-        Opcode::new(0xC1, "SET 0, C", operand!((Literal(0)),(Register::C)), vec![8]),
-        Opcode::new(0xC2, "SET 0, D", operand!((Literal(0)),(Register::D)), vec![8]),
-        Opcode::new(0xC3, "SET 0, E", operand!((Literal(0)),(Register::E)), vec![8]),
-        Opcode::new(0xC4, "SET 0, H", operand!((Literal(0)),(Register::H)), vec![8]),
-        Opcode::new(0xC5, "SET 0, L", operand!((Literal(0)),(Register::L)), vec![8]),
-        Opcode::new(0xC6, "SET 0, HL", operand!((Literal(0)),[((Register::H),(Register::L))]), vec![16]),
-        Opcode::new(0xC7, "SET 0, A", operand!((Literal(0)),(Register::A)), vec![8]),
-        Opcode::new(0xC8, "SET 1, B", operand!((Literal(1)),(Register::B)), vec![8]),
-        Opcode::new(0xC9, "SET 1, C", operand!((Literal(1)),(Register::C)), vec![8]),
-        Opcode::new(0xCA, "SET 1, D", operand!((Literal(1)),(Register::D)), vec![8]),
-        Opcode::new(0xCB, "SET 1, E", operand!((Literal(1)),(Register::E)), vec![8]),
-        Opcode::new(0xCC, "SET 1, H", operand!((Literal(1)),(Register::H)), vec![8]),
-        Opcode::new(0xCD, "SET 1, L", operand!((Literal(1)),(Register::L)), vec![8]),
-        Opcode::new(0xCE, "SET 1, HL", operand!((Literal(1)),[((Register::H),(Register::L))]), vec![16]),
-        Opcode::new(0xCF, "SET 1, A", operand!((Literal(1)),(Register::A)), vec![8]),
-        Opcode::new(0xD0, "SET 2, B", operand!((Literal(2)),(Register::B)), vec![8]),
-        Opcode::new(0xD1, "SET 2, C", operand!((Literal(2)),(Register::C)), vec![8]),
-        Opcode::new(0xD2, "SET 2, D", operand!((Literal(2)),(Register::D)), vec![8]),
-        Opcode::new(0xD3, "SET 2, E", operand!((Literal(2)),(Register::E)), vec![8]),
-        Opcode::new(0xD4, "SET 2, H", operand!((Literal(2)),(Register::H)), vec![8]),
-        Opcode::new(0xD5, "SET 2, L", operand!((Literal(2)),(Register::L)), vec![8]),
-        Opcode::new(0xD6, "SET 2, HL", operand!((Literal(2)),[((Register::H),(Register::L))]), vec![16]),
-        Opcode::new(0xD7, "SET 2, A", operand!((Literal(2)),(Register::A)), vec![8]),
-        Opcode::new(0xD8, "SET 3, B", operand!((Literal(3)),(Register::B)), vec![8]),
-        Opcode::new(0xD9, "SET 3, C", operand!((Literal(3)),(Register::C)), vec![8]),
-        Opcode::new(0xDA, "SET 3, D", operand!((Literal(3)),(Register::D)), vec![8]),
-        Opcode::new(0xDB, "SET 3, E", operand!((Literal(3)),(Register::E)), vec![8]),
-        Opcode::new(0xDC, "SET 3, H", operand!((Literal(3)),(Register::H)), vec![8]),
-        Opcode::new(0xDD, "SET 3, L", operand!((Literal(3)),(Register::L)), vec![8]),
-        Opcode::new(0xDE, "SET 3, HL", operand!((Literal(3)),[((Register::H),(Register::L))]), vec![16]),
-        Opcode::new(0xDF, "SET 3, A", operand!((Literal(3)),(Register::A)), vec![8]),
-        Opcode::new(0xE0, "SET 4, B", operand!((Literal(4)),(Register::B)), vec![8]),
-        Opcode::new(0xE1, "SET 4, C", operand!((Literal(4)),(Register::C)), vec![8]),
-        Opcode::new(0xE2, "SET 4, D", operand!((Literal(4)),(Register::D)), vec![8]),
-        Opcode::new(0xE3, "SET 4, E", operand!((Literal(4)),(Register::E)), vec![8]),
-        Opcode::new(0xE4, "SET 4, H", operand!((Literal(4)),(Register::H)), vec![8]),
-        Opcode::new(0xE5, "SET 4, L", operand!((Literal(4)),(Register::L)), vec![8]),
-        Opcode::new(0xE6, "SET 4, HL", operand!((Literal(4)),[((Register::H),(Register::L))]), vec![16]),
-        Opcode::new(0xE7, "SET 4, A", operand!((Literal(4)),(Register::A)), vec![8]),
-        Opcode::new(0xE8, "SET 5, B", operand!((Literal(5)),(Register::B)), vec![8]),
-        Opcode::new(0xE9, "SET 5, C", operand!((Literal(5)),(Register::C)), vec![8]),
-        Opcode::new(0xEA, "SET 5, D", operand!((Literal(5)),(Register::D)), vec![8]),
-        Opcode::new(0xEB, "SET 5, E", operand!((Literal(5)),(Register::E)), vec![8]),
-        Opcode::new(0xEC, "SET 5, H", operand!((Literal(5)),(Register::H)), vec![8]),
-        Opcode::new(0xED, "SET 5, L", operand!((Literal(5)),(Register::L)), vec![8]),
-        Opcode::new(0xEE, "SET 5, HL", operand!((Literal(5)),[((Register::H),(Register::L))]), vec![16]),
-        Opcode::new(0xEF, "SET 5, A", operand!((Literal(5)),(Register::A)), vec![8]),
-        Opcode::new(0xF0, "SET 6, B", operand!((Literal(6)),(Register::B)), vec![8]),
-        Opcode::new(0xF1, "SET 6, C", operand!((Literal(6)),(Register::C)), vec![8]),
-        Opcode::new(0xF2, "SET 6, D", operand!((Literal(6)),(Register::D)), vec![8]),
-        Opcode::new(0xF3, "SET 6, E", operand!((Literal(6)),(Register::E)), vec![8]),
-        Opcode::new(0xF4, "SET 6, H", operand!((Literal(6)),(Register::H)), vec![8]),
-        Opcode::new(0xF5, "SET 6, L", operand!((Literal(6)),(Register::L)), vec![8]),
-        Opcode::new(0xF6, "SET 6, HL", operand!((Literal(6)),[((Register::H),(Register::L))]), vec![16]),
-        Opcode::new(0xF7, "SET 6, A", operand!((Literal(6)),(Register::A)), vec![8]),
-        Opcode::new(0xF8, "SET 7, B", operand!((Literal(7)),(Register::B)), vec![8]),
-        Opcode::new(0xF9, "SET 7, C", operand!((Literal(7)),(Register::C)), vec![8]),
-        Opcode::new(0xFA, "SET 7, D", operand!((Literal(7)),(Register::D)), vec![8]),
-        Opcode::new(0xFB, "SET 7, E", operand!((Literal(7)),(Register::E)), vec![8]),
-        Opcode::new(0xFC, "SET 7, H", operand!((Literal(7)),(Register::H)), vec![8]),
-        Opcode::new(0xFD, "SET 7, L", operand!((Literal(7)),(Register::L)), vec![8]),
-        Opcode::new(0xFE, "SET 7, HL", operand!((Literal(7)),[((Register::H),(Register::L))]), vec![16]),
-        Opcode::new(0xFF, "SET 7, A", operand!((Literal(7)),(Register::A)), vec![8])
+        Opcode::new(0x00, "RLC (Register::B)", operand!((Register::B)), vec![8]),
+        Opcode::new(0x01, "RLC (Register::C)", operand!((Register::C)), vec![8]),
+        Opcode::new(0x02, "RLC (Register::D)", operand!((Register::D)), vec![8]),
+        Opcode::new(0x03, "RLC (Register::E)", operand!((Register::E)), vec![8]),
+        Opcode::new(0x04, "RLC (Register::H)", operand!((Register::H)), vec![8]),
+        Opcode::new(0x05, "RLC (Register::L)", operand!((Register::L)), vec![8]),
+        Opcode::new(0x06, "RLC [HL]", operand!([((Register::H),(Register::L))]), vec![16]),
+        Opcode::new(0x07, "RLC (Register::A)", operand!((Register::A)), vec![8]),
+        Opcode::new(0x08, "RRC (Register::B)", operand!((Register::B)), vec![8]),
+        Opcode::new(0x09, "RRC (Register::C)", operand!((Register::C)), vec![8]),
+        Opcode::new(0x0A, "RRC (Register::D)", operand!((Register::D)), vec![8]),
+        Opcode::new(0x0B, "RRC (Register::E)", operand!((Register::E)), vec![8]),
+        Opcode::new(0x0C, "RRC (Register::H)", operand!((Register::H)), vec![8]),
+        Opcode::new(0x0D, "RRC (Register::L)", operand!((Register::L)), vec![8]),
+        Opcode::new(0x0E, "RRC [HL]", operand!([((Register::H),(Register::L))]), vec![16]),
+        Opcode::new(0x0F, "RRC (Register::A)", operand!((Register::A)), vec![8]),
+        Opcode::new(0x10, "RL (Register::B)", operand!((Register::B)), vec![8]),
+        Opcode::new(0x11, "RL (Register::C)", operand!((Register::C)), vec![8]),
+        Opcode::new(0x12, "RL (Register::D)", operand!((Register::D)), vec![8]),
+        Opcode::new(0x13, "RL (Register::E)", operand!((Register::E)), vec![8]),
+        Opcode::new(0x14, "RL (Register::H)", operand!((Register::H)), vec![8]),
+        Opcode::new(0x15, "RL (Register::L)", operand!((Register::L)), vec![8]),
+        Opcode::new(0x16, "RL [HL]", operand!([((Register::H),(Register::L))]), vec![16]),
+        Opcode::new(0x17, "RL (Register::A)", operand!((Register::A)), vec![8]),
+        Opcode::new(0x18, "RR (Register::B)", operand!((Register::B)), vec![8]),
+        Opcode::new(0x19, "RR (Register::C)", operand!((Register::C)), vec![8]),
+        Opcode::new(0x1A, "RR (Register::D)", operand!((Register::D)), vec![8]),
+        Opcode::new(0x1B, "RR (Register::E)", operand!((Register::E)), vec![8]),
+        Opcode::new(0x1C, "RR (Register::H)", operand!((Register::H)), vec![8]),
+        Opcode::new(0x1D, "RR (Register::L)", operand!((Register::L)), vec![8]),
+        Opcode::new(0x1E, "RR [HL]", operand!([((Register::H),(Register::L))]), vec![16]),
+        Opcode::new(0x1F, "RR (Register::A)", operand!((Register::A)), vec![8]),
+        Opcode::new(0x20, "SLA (Register::B)", operand!((Register::B)), vec![8]),
+        Opcode::new(0x21, "SLA (Register::C)", operand!((Register::C)), vec![8]),
+        Opcode::new(0x22, "SLA (Register::D)", operand!((Register::D)), vec![8]),
+        Opcode::new(0x23, "SLA (Register::E)", operand!((Register::E)), vec![8]),
+        Opcode::new(0x24, "SLA (Register::H)", operand!((Register::H)), vec![8]),
+        Opcode::new(0x25, "SLA (Register::L)", operand!((Register::L)), vec![8]),
+        Opcode::new(0x26, "SLA [HL]", operand!([((Register::H),(Register::L))]), vec![16]),
+        Opcode::new(0x27, "SLA (Register::A)", operand!((Register::A)), vec![8]),
+        Opcode::new(0x28, "SRA (Register::B)", operand!((Register::B)), vec![8]),
+        Opcode::new(0x29, "SRA (Register::C)", operand!((Register::C)), vec![8]),
+        Opcode::new(0x2A, "SRA (Register::D)", operand!((Register::D)), vec![8]),
+        Opcode::new(0x2B, "SRA (Register::E)", operand!((Register::E)), vec![8]),
+        Opcode::new(0x2C, "SRA (Register::H)", operand!((Register::H)), vec![8]),
+        Opcode::new(0x2D, "SRA (Register::L)", operand!((Register::L)), vec![8]),
+        Opcode::new(0x2E, "SRA [HL]", operand!([((Register::H),(Register::L))]), vec![16]),
+        Opcode::new(0x2F, "SRA (Register::A)", operand!((Register::A)), vec![8]),
+        Opcode::new(0x30, "SWAP (Register::B)", operand!((Register::B)), vec![8]),
+        Opcode::new(0x31, "SWAP (Register::C)", operand!((Register::C)), vec![8]),
+        Opcode::new(0x32, "SWAP (Register::D)", operand!((Register::D)), vec![8]),
+        Opcode::new(0x33, "SWAP (Register::E)", operand!((Register::E)), vec![8]),
+        Opcode::new(0x34, "SWAP (Register::H)", operand!((Register::H)), vec![8]),
+        Opcode::new(0x35, "SWAP (Register::L)", operand!((Register::L)), vec![8]),
+        Opcode::new(0x36, "SWAP [HL]", operand!([((Register::H),(Register::L))]), vec![16]),
+        Opcode::new(0x37, "SWAP (Register::A)", operand!((Register::A)), vec![8]),
+        Opcode::new(0x38, "SRL (Register::B)", operand!((Register::B)), vec![8]),
+        Opcode::new(0x39, "SRL (Register::C)", operand!((Register::C)), vec![8]),
+        Opcode::new(0x3A, "SRL (Register::D)", operand!((Register::D)), vec![8]),
+        Opcode::new(0x3B, "SRL (Register::E)", operand!((Register::E)), vec![8]),
+        Opcode::new(0x3C, "SRL (Register::H)", operand!((Register::H)), vec![8]),
+        Opcode::new(0x3D, "SRL (Register::L)", operand!((Register::L)), vec![8]),
+        Opcode::new(0x3E, "SRL [HL]", operand!([((Register::H),(Register::L))]), vec![16]),
+        Opcode::new(0x3F, "SRL (Register::A)", operand!((Register::A)), vec![8]),
+        Opcode::new(0x40, "BIT 0, (Register::B)", operand!((Literal(0)),(Register::B)), vec![8]),
+        Opcode::new(0x41, "BIT 0, (Register::C)", operand!((Literal(0)),(Register::C)), vec![8]),
+        Opcode::new(0x42, "BIT 0, (Register::D)", operand!((Literal(0)),(Register::D)), vec![8]),
+        Opcode::new(0x43, "BIT 0, (Register::E)", operand!((Literal(0)),(Register::E)), vec![8]),
+        Opcode::new(0x44, "BIT 0, (Register::H)", operand!((Literal(0)),(Register::H)), vec![8]),
+        Opcode::new(0x45, "BIT 0, (Register::L)", operand!((Literal(0)),(Register::L)), vec![8]),
+        Opcode::new(0x46, "BIT 0, [HL]", operand!((Literal(0)),[((Register::H),(Register::L))]), vec![12]),
+        Opcode::new(0x47, "BIT 0, (Register::A)", operand!((Literal(0)),(Register::A)), vec![8]),
+        Opcode::new(0x48, "BIT 1, (Register::B)", operand!((Literal(1)),(Register::B)), vec![8]),
+        Opcode::new(0x49, "BIT 1, (Register::C)", operand!((Literal(1)),(Register::C)), vec![8]),
+        Opcode::new(0x4A, "BIT 1, (Register::D)", operand!((Literal(1)),(Register::D)), vec![8]),
+        Opcode::new(0x4B, "BIT 1, (Register::E)", operand!((Literal(1)),(Register::E)), vec![8]),
+        Opcode::new(0x4C, "BIT 1, (Register::H)", operand!((Literal(1)),(Register::H)), vec![8]),
+        Opcode::new(0x4D, "BIT 1, (Register::L)", operand!((Literal(1)),(Register::L)), vec![8]),
+        Opcode::new(0x4E, "BIT 1, [HL]", operand!((Literal(1)),[((Register::H),(Register::L))]), vec![12]),
+        Opcode::new(0x4F, "BIT 1, (Register::A)", operand!((Literal(1)),(Register::A)), vec![8]),
+        Opcode::new(0x50, "BIT 2, (Register::B)", operand!((Literal(2)),(Register::B)), vec![8]),
+        Opcode::new(0x51, "BIT 2, (Register::C)", operand!((Literal(2)),(Register::C)), vec![8]),
+        Opcode::new(0x52, "BIT 2, (Register::D)", operand!((Literal(2)),(Register::D)), vec![8]),
+        Opcode::new(0x53, "BIT 2, (Register::E)", operand!((Literal(2)),(Register::E)), vec![8]),
+        Opcode::new(0x54, "BIT 2, (Register::H)", operand!((Literal(2)),(Register::H)), vec![8]),
+        Opcode::new(0x55, "BIT 2, (Register::L)", operand!((Literal(2)),(Register::L)), vec![8]),
+        Opcode::new(0x56, "BIT 2, [HL]", operand!((Literal(2)),[((Register::H),(Register::L))]), vec![12]),
+        Opcode::new(0x57, "BIT 2, (Register::A)", operand!((Literal(2)),(Register::A)), vec![8]),
+        Opcode::new(0x58, "BIT 3, (Register::B)", operand!((Literal(3)),(Register::B)), vec![8]),
+        Opcode::new(0x59, "BIT 3, (Register::C)", operand!((Literal(3)),(Register::C)), vec![8]),
+        Opcode::new(0x5A, "BIT 3, (Register::D)", operand!((Literal(3)),(Register::D)), vec![8]),
+        Opcode::new(0x5B, "BIT 3, (Register::E)", operand!((Literal(3)),(Register::E)), vec![8]),
+        Opcode::new(0x5C, "BIT 3, (Register::H)", operand!((Literal(3)),(Register::H)), vec![8]),
+        Opcode::new(0x5D, "BIT 3, (Register::L)", operand!((Literal(3)),(Register::L)), vec![8]),
+        Opcode::new(0x5E, "BIT 3, [HL]", operand!((Literal(3)),[((Register::H),(Register::L))]), vec![12]),
+        Opcode::new(0x5F, "BIT 3, (Register::A)", operand!((Literal(3)),(Register::A)), vec![8]),
+        Opcode::new(0x60, "BIT 4, (Register::B)", operand!((Literal(4)),(Register::B)), vec![8]),
+        Opcode::new(0x61, "BIT 4, (Register::C)", operand!((Literal(4)),(Register::C)), vec![8]),
+        Opcode::new(0x62, "BIT 4, (Register::D)", operand!((Literal(4)),(Register::D)), vec![8]),
+        Opcode::new(0x63, "BIT 4, (Register::E)", operand!((Literal(4)),(Register::E)), vec![8]),
+        Opcode::new(0x64, "BIT 4, (Register::H)", operand!((Literal(4)),(Register::H)), vec![8]),
+        Opcode::new(0x65, "BIT 4, (Register::L)", operand!((Literal(4)),(Register::L)), vec![8]),
+        Opcode::new(0x66, "BIT 4, [HL]", operand!((Literal(4)),[((Register::H),(Register::L))]), vec![12]),
+        Opcode::new(0x67, "BIT 4, (Register::A)", operand!((Literal(4)),(Register::A)), vec![8]),
+        Opcode::new(0x68, "BIT 5, (Register::B)", operand!((Literal(5)),(Register::B)), vec![8]),
+        Opcode::new(0x69, "BIT 5, (Register::C)", operand!((Literal(5)),(Register::C)), vec![8]),
+        Opcode::new(0x6A, "BIT 5, (Register::D)", operand!((Literal(5)),(Register::D)), vec![8]),
+        Opcode::new(0x6B, "BIT 5, (Register::E)", operand!((Literal(5)),(Register::E)), vec![8]),
+        Opcode::new(0x6C, "BIT 5, (Register::H)", operand!((Literal(5)),(Register::H)), vec![8]),
+        Opcode::new(0x6D, "BIT 5, (Register::L)", operand!((Literal(5)),(Register::L)), vec![8]),
+        Opcode::new(0x6E, "BIT 5, [HL]", operand!((Literal(5)),[((Register::H),(Register::L))]), vec![12]),
+        Opcode::new(0x6F, "BIT 5, (Register::A)", operand!((Literal(5)),(Register::A)), vec![8]),
+        Opcode::new(0x70, "BIT 6, (Register::B)", operand!((Literal(6)),(Register::B)), vec![8]),
+        Opcode::new(0x71, "BIT 6, (Register::C)", operand!((Literal(6)),(Register::C)), vec![8]),
+        Opcode::new(0x72, "BIT 6, (Register::D)", operand!((Literal(6)),(Register::D)), vec![8]),
+        Opcode::new(0x73, "BIT 6, (Register::E)", operand!((Literal(6)),(Register::E)), vec![8]),
+        Opcode::new(0x74, "BIT 6, (Register::H)", operand!((Literal(6)),(Register::H)), vec![8]),
+        Opcode::new(0x75, "BIT 6, (Register::L)", operand!((Literal(6)),(Register::L)), vec![8]),
+        Opcode::new(0x76, "BIT 6, [HL]", operand!((Literal(6)),[((Register::H),(Register::L))]), vec![12]),
+        Opcode::new(0x77, "BIT 6, (Register::A)", operand!((Literal(6)),(Register::A)), vec![8]),
+        Opcode::new(0x78, "BIT 7, (Register::B)", operand!((Literal(7)),(Register::B)), vec![8]),
+        Opcode::new(0x79, "BIT 7, (Register::C)", operand!((Literal(7)),(Register::C)), vec![8]),
+        Opcode::new(0x7A, "BIT 7, (Register::D)", operand!((Literal(7)),(Register::D)), vec![8]),
+        Opcode::new(0x7B, "BIT 7, (Register::E)", operand!((Literal(7)),(Register::E)), vec![8]),
+        Opcode::new(0x7C, "BIT 7, (Register::H)", operand!((Literal(7)),(Register::H)), vec![8]),
+        Opcode::new(0x7D, "BIT 7, (Register::L)", operand!((Literal(7)),(Register::L)), vec![8]),
+        Opcode::new(0x7E, "BIT 7, [HL]", operand!((Literal(7)),[((Register::H),(Register::L))]), vec![12]),
+        Opcode::new(0x7F, "BIT 7, (Register::A)", operand!((Literal(7)),(Register::A)), vec![8]),
+        Opcode::new(0x80, "RES 0, (Register::B)", operand!((Literal(0)),(Register::B)), vec![8]),
+        Opcode::new(0x81, "RES 0, (Register::C)", operand!((Literal(0)),(Register::C)), vec![8]),
+        Opcode::new(0x82, "RES 0, (Register::D)", operand!((Literal(0)),(Register::D)), vec![8]),
+        Opcode::new(0x83, "RES 0, (Register::E)", operand!((Literal(0)),(Register::E)), vec![8]),
+        Opcode::new(0x84, "RES 0, (Register::H)", operand!((Literal(0)),(Register::H)), vec![8]),
+        Opcode::new(0x85, "RES 0, (Register::L)", operand!((Literal(0)),(Register::L)), vec![8]),
+        Opcode::new(0x86, "RES 0, [HL]", operand!((Literal(0)),[((Register::H),(Register::L))]), vec![16]),
+        Opcode::new(0x87, "RES 0, (Register::A)", operand!((Literal(0)),(Register::A)), vec![8]),
+        Opcode::new(0x88, "RES 1, (Register::B)", operand!((Literal(1)),(Register::B)), vec![8]),
+        Opcode::new(0x89, "RES 1, (Register::C)", operand!((Literal(1)),(Register::C)), vec![8]),
+        Opcode::new(0x8A, "RES 1, (Register::D)", operand!((Literal(1)),(Register::D)), vec![8]),
+        Opcode::new(0x8B, "RES 1, (Register::E)", operand!((Literal(1)),(Register::E)), vec![8]),
+        Opcode::new(0x8C, "RES 1, (Register::H)", operand!((Literal(1)),(Register::H)), vec![8]),
+        Opcode::new(0x8D, "RES 1, (Register::L)", operand!((Literal(1)),(Register::L)), vec![8]),
+        Opcode::new(0x8E, "RES 1, [HL]", operand!((Literal(1)),[((Register::H),(Register::L))]), vec![16]),
+        Opcode::new(0x8F, "RES 1, (Register::A)", operand!((Literal(1)),(Register::A)), vec![8]),
+        Opcode::new(0x90, "RES 2, (Register::B)", operand!((Literal(2)),(Register::B)), vec![8]),
+        Opcode::new(0x91, "RES 2, (Register::C)", operand!((Literal(2)),(Register::C)), vec![8]),
+        Opcode::new(0x92, "RES 2, (Register::D)", operand!((Literal(2)),(Register::D)), vec![8]),
+        Opcode::new(0x93, "RES 2, (Register::E)", operand!((Literal(2)),(Register::E)), vec![8]),
+        Opcode::new(0x94, "RES 2, (Register::H)", operand!((Literal(2)),(Register::H)), vec![8]),
+        Opcode::new(0x95, "RES 2, (Register::L)", operand!((Literal(2)),(Register::L)), vec![8]),
+        Opcode::new(0x96, "RES 2, [HL]", operand!((Literal(2)),[((Register::H),(Register::L))]), vec![16]),
+        Opcode::new(0x97, "RES 2, (Register::A)", operand!((Literal(2)),(Register::A)), vec![8]),
+        Opcode::new(0x98, "RES 3, (Register::B)", operand!((Literal(3)),(Register::B)), vec![8]),
+        Opcode::new(0x99, "RES 3, (Register::C)", operand!((Literal(3)),(Register::C)), vec![8]),
+        Opcode::new(0x9A, "RES 3, (Register::D)", operand!((Literal(3)),(Register::D)), vec![8]),
+        Opcode::new(0x9B, "RES 3, (Register::E)", operand!((Literal(3)),(Register::E)), vec![8]),
+        Opcode::new(0x9C, "RES 3, (Register::H)", operand!((Literal(3)),(Register::H)), vec![8]),
+        Opcode::new(0x9D, "RES 3, (Register::L)", operand!((Literal(3)),(Register::L)), vec![8]),
+        Opcode::new(0x9E, "RES 3, [HL]", operand!((Literal(3)),[((Register::H),(Register::L))]), vec![16]),
+        Opcode::new(0x9F, "RES 3, (Register::A)", operand!((Literal(3)),(Register::A)), vec![8]),
+        Opcode::new(0xA0, "RES 4, (Register::B)", operand!((Literal(4)),(Register::B)), vec![8]),
+        Opcode::new(0xA1, "RES 4, (Register::C)", operand!((Literal(4)),(Register::C)), vec![8]),
+        Opcode::new(0xA2, "RES 4, (Register::D)", operand!((Literal(4)),(Register::D)), vec![8]),
+        Opcode::new(0xA3, "RES 4, (Register::E)", operand!((Literal(4)),(Register::E)), vec![8]),
+        Opcode::new(0xA4, "RES 4, (Register::H)", operand!((Literal(4)),(Register::H)), vec![8]),
+        Opcode::new(0xA5, "RES 4, (Register::L)", operand!((Literal(4)),(Register::L)), vec![8]),
+        Opcode::new(0xA6, "RES 4, [HL]", operand!((Literal(4)),[((Register::H),(Register::L))]), vec![16]),
+        Opcode::new(0xA7, "RES 4, (Register::A)", operand!((Literal(4)),(Register::A)), vec![8]),
+        Opcode::new(0xA8, "RES 5, (Register::B)", operand!((Literal(5)),(Register::B)), vec![8]),
+        Opcode::new(0xA9, "RES 5, (Register::C)", operand!((Literal(5)),(Register::C)), vec![8]),
+        Opcode::new(0xAA, "RES 5, (Register::D)", operand!((Literal(5)),(Register::D)), vec![8]),
+        Opcode::new(0xAB, "RES 5, (Register::E)", operand!((Literal(5)),(Register::E)), vec![8]),
+        Opcode::new(0xAC, "RES 5, (Register::H)", operand!((Literal(5)),(Register::H)), vec![8]),
+        Opcode::new(0xAD, "RES 5, (Register::L)", operand!((Literal(5)),(Register::L)), vec![8]),
+        Opcode::new(0xAE, "RES 5, [HL]", operand!((Literal(5)),[((Register::H),(Register::L))]), vec![16]),
+        Opcode::new(0xAF, "RES 5, (Register::A)", operand!((Literal(5)),(Register::A)), vec![8]),
+        Opcode::new(0xB0, "RES 6, (Register::B)", operand!((Literal(6)),(Register::B)), vec![8]),
+        Opcode::new(0xB1, "RES 6, (Register::C)", operand!((Literal(6)),(Register::C)), vec![8]),
+        Opcode::new(0xB2, "RES 6, (Register::D)", operand!((Literal(6)),(Register::D)), vec![8]),
+        Opcode::new(0xB3, "RES 6, (Register::E)", operand!((Literal(6)),(Register::E)), vec![8]),
+        Opcode::new(0xB4, "RES 6, (Register::H)", operand!((Literal(6)),(Register::H)), vec![8]),
+        Opcode::new(0xB5, "RES 6, (Register::L)", operand!((Literal(6)),(Register::L)), vec![8]),
+        Opcode::new(0xB6, "RES 6, [HL]", operand!((Literal(6)),[((Register::H),(Register::L))]), vec![16]),
+        Opcode::new(0xB7, "RES 6, (Register::A)", operand!((Literal(6)),(Register::A)), vec![8]),
+        Opcode::new(0xB8, "RES 7, (Register::B)", operand!((Literal(7)),(Register::B)), vec![8]),
+        Opcode::new(0xB9, "RES 7, (Register::C)", operand!((Literal(7)),(Register::C)), vec![8]),
+        Opcode::new(0xBA, "RES 7, (Register::D)", operand!((Literal(7)),(Register::D)), vec![8]),
+        Opcode::new(0xBB, "RES 7, (Register::E)", operand!((Literal(7)),(Register::E)), vec![8]),
+        Opcode::new(0xBC, "RES 7, (Register::H)", operand!((Literal(7)),(Register::H)), vec![8]),
+        Opcode::new(0xBD, "RES 7, (Register::L)", operand!((Literal(7)),(Register::L)), vec![8]),
+        Opcode::new(0xBE, "RES 7, [HL]", operand!((Literal(7)),[((Register::H),(Register::L))]), vec![16]),
+        Opcode::new(0xBF, "RES 7, (Register::A)", operand!((Literal(7)),(Register::A)), vec![8]),
+        Opcode::new(0xC0, "SET 0, (Register::B)", operand!((Literal(0)),(Register::B)), vec![8]),
+        Opcode::new(0xC1, "SET 0, (Register::C)", operand!((Literal(0)),(Register::C)), vec![8]),
+        Opcode::new(0xC2, "SET 0, (Register::D)", operand!((Literal(0)),(Register::D)), vec![8]),
+        Opcode::new(0xC3, "SET 0, (Register::E)", operand!((Literal(0)),(Register::E)), vec![8]),
+        Opcode::new(0xC4, "SET 0, (Register::H)", operand!((Literal(0)),(Register::H)), vec![8]),
+        Opcode::new(0xC5, "SET 0, (Register::L)", operand!((Literal(0)),(Register::L)), vec![8]),
+        Opcode::new(0xC6, "SET 0, [HL]", operand!((Literal(0)),[((Register::H),(Register::L))]), vec![16]),
+        Opcode::new(0xC7, "SET 0, (Register::A)", operand!((Literal(0)),(Register::A)), vec![8]),
+        Opcode::new(0xC8, "SET 1, (Register::B)", operand!((Literal(1)),(Register::B)), vec![8]),
+        Opcode::new(0xC9, "SET 1, (Register::C)", operand!((Literal(1)),(Register::C)), vec![8]),
+        Opcode::new(0xCA, "SET 1, (Register::D)", operand!((Literal(1)),(Register::D)), vec![8]),
+        Opcode::new(0xCB, "SET 1, (Register::E)", operand!((Literal(1)),(Register::E)), vec![8]),
+        Opcode::new(0xCC, "SET 1, (Register::H)", operand!((Literal(1)),(Register::H)), vec![8]),
+        Opcode::new(0xCD, "SET 1, (Register::L)", operand!((Literal(1)),(Register::L)), vec![8]),
+        Opcode::new(0xCE, "SET 1, [HL]", operand!((Literal(1)),[((Register::H),(Register::L))]), vec![16]),
+        Opcode::new(0xCF, "SET 1, (Register::A)", operand!((Literal(1)),(Register::A)), vec![8]),
+        Opcode::new(0xD0, "SET 2, (Register::B)", operand!((Literal(2)),(Register::B)), vec![8]),
+        Opcode::new(0xD1, "SET 2, (Register::C)", operand!((Literal(2)),(Register::C)), vec![8]),
+        Opcode::new(0xD2, "SET 2, (Register::D)", operand!((Literal(2)),(Register::D)), vec![8]),
+        Opcode::new(0xD3, "SET 2, (Register::E)", operand!((Literal(2)),(Register::E)), vec![8]),
+        Opcode::new(0xD4, "SET 2, (Register::H)", operand!((Literal(2)),(Register::H)), vec![8]),
+        Opcode::new(0xD5, "SET 2, (Register::L)", operand!((Literal(2)),(Register::L)), vec![8]),
+        Opcode::new(0xD6, "SET 2, [HL]", operand!((Literal(2)),[((Register::H),(Register::L))]), vec![16]),
+        Opcode::new(0xD7, "SET 2, (Register::A)", operand!((Literal(2)),(Register::A)), vec![8]),
+        Opcode::new(0xD8, "SET 3, (Register::B)", operand!((Literal(3)),(Register::B)), vec![8]),
+        Opcode::new(0xD9, "SET 3, (Register::C)", operand!((Literal(3)),(Register::C)), vec![8]),
+        Opcode::new(0xDA, "SET 3, (Register::D)", operand!((Literal(3)),(Register::D)), vec![8]),
+        Opcode::new(0xDB, "SET 3, (Register::E)", operand!((Literal(3)),(Register::E)), vec![8]),
+        Opcode::new(0xDC, "SET 3, (Register::H)", operand!((Literal(3)),(Register::H)), vec![8]),
+        Opcode::new(0xDD, "SET 3, (Register::L)", operand!((Literal(3)),(Register::L)), vec![8]),
+        Opcode::new(0xDE, "SET 3, [HL]", operand!((Literal(3)),[((Register::H),(Register::L))]), vec![16]),
+        Opcode::new(0xDF, "SET 3, (Register::A)", operand!((Literal(3)),(Register::A)), vec![8]),
+        Opcode::new(0xE0, "SET 4, (Register::B)", operand!((Literal(4)),(Register::B)), vec![8]),
+        Opcode::new(0xE1, "SET 4, (Register::C)", operand!((Literal(4)),(Register::C)), vec![8]),
+        Opcode::new(0xE2, "SET 4, (Register::D)", operand!((Literal(4)),(Register::D)), vec![8]),
+        Opcode::new(0xE3, "SET 4, (Register::E)", operand!((Literal(4)),(Register::E)), vec![8]),
+        Opcode::new(0xE4, "SET 4, (Register::H)", operand!((Literal(4)),(Register::H)), vec![8]),
+        Opcode::new(0xE5, "SET 4, (Register::L)", operand!((Literal(4)),(Register::L)), vec![8]),
+        Opcode::new(0xE6, "SET 4, [HL]", operand!((Literal(4)),[((Register::H),(Register::L))]), vec![16]),
+        Opcode::new(0xE7, "SET 4, (Register::A)", operand!((Literal(4)),(Register::A)), vec![8]),
+        Opcode::new(0xE8, "SET 5, (Register::B)", operand!((Literal(5)),(Register::B)), vec![8]),
+        Opcode::new(0xE9, "SET 5, (Register::C)", operand!((Literal(5)),(Register::C)), vec![8]),
+        Opcode::new(0xEA, "SET 5, (Register::D)", operand!((Literal(5)),(Register::D)), vec![8]),
+        Opcode::new(0xEB, "SET 5, (Register::E)", operand!((Literal(5)),(Register::E)), vec![8]),
+        Opcode::new(0xEC, "SET 5, (Register::H)", operand!((Literal(5)),(Register::H)), vec![8]),
+        Opcode::new(0xED, "SET 5, (Register::L)", operand!((Literal(5)),(Register::L)), vec![8]),
+        Opcode::new(0xEE, "SET 5, [HL]", operand!((Literal(5)),[((Register::H),(Register::L))]), vec![16]),
+        Opcode::new(0xEF, "SET 5, (Register::A)", operand!((Literal(5)),(Register::A)), vec![8]),
+        Opcode::new(0xF0, "SET 6, (Register::B)", operand!((Literal(6)),(Register::B)), vec![8]),
+        Opcode::new(0xF1, "SET 6, (Register::C)", operand!((Literal(6)),(Register::C)), vec![8]),
+        Opcode::new(0xF2, "SET 6, (Register::D)", operand!((Literal(6)),(Register::D)), vec![8]),
+        Opcode::new(0xF3, "SET 6, (Register::E)", operand!((Literal(6)),(Register::E)), vec![8]),
+        Opcode::new(0xF4, "SET 6, (Register::H)", operand!((Literal(6)),(Register::H)), vec![8]),
+        Opcode::new(0xF5, "SET 6, (Register::L)", operand!((Literal(6)),(Register::L)), vec![8]),
+        Opcode::new(0xF6, "SET 6, [HL]", operand!((Literal(6)),[((Register::H),(Register::L))]), vec![16]),
+        Opcode::new(0xF7, "SET 6, (Register::A)", operand!((Literal(6)),(Register::A)), vec![8]),
+        Opcode::new(0xF8, "SET 7, (Register::B)", operand!((Literal(7)),(Register::B)), vec![8]),
+        Opcode::new(0xF9, "SET 7, (Register::C)", operand!((Literal(7)),(Register::C)), vec![8]),
+        Opcode::new(0xFA, "SET 7, (Register::D)", operand!((Literal(7)),(Register::D)), vec![8]),
+        Opcode::new(0xFB, "SET 7, (Register::E)", operand!((Literal(7)),(Register::E)), vec![8]),
+        Opcode::new(0xFC, "SET 7, (Register::H)", operand!((Literal(7)),(Register::H)), vec![8]),
+        Opcode::new(0xFD, "SET 7, (Register::L)", operand!((Literal(7)),(Register::L)), vec![8]),
+        Opcode::new(0xFE, "SET 7, [HL]", operand!((Literal(7)),[((Register::H),(Register::L))]), vec![16]),
+        Opcode::new(0xFF, "SET 7, (Register::A)", operand!((Literal(7)),(Register::A)), vec![8])
     ]
 }

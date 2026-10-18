@@ -24,10 +24,12 @@ pub enum Register{
 
 #[derive(Debug, Clone)]
 pub enum Flag{
-    Z(bool),
-    N(bool),
-    H(bool),
-    C(bool)
+    Z,
+    NZ,
+    C,
+    NC,
+    N,
+    H
 }
 
 pub struct System{

@@ -18,14 +18,12 @@ operands_map = {
 }
 
 flags_map = {
-    "NZ": "(Flag::Z(false))",
-    "Z": "(Flag::Z(true))",
-    "NC": "(Flag::C(false))",
-    "C": "(Flag::C(true))",
-    "NH": "(Flag::H(false))",
-    "H": "(Flag::H(true))",
-    "NN": "(Flag::N(false))",
-    "N": "(Flag::N(true))"
+    "NZ": "(Flag::NZ)",
+    "Z": "(Flag::Z)",
+    "NC": "(Flag::NC)",
+    "C": "(Flag::C)",
+    "H": "(Flag::H)",
+    "N": "(Flag::N)"
 }
 
 mnemonic_map = {
