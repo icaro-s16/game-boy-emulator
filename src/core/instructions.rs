@@ -13,7 +13,7 @@ pub fn ld(opcode: &Opcode, system: &mut System){
             (op1, op2)
         }
         else {
-            panic!("[ERROR] A ld instruction should have an binary operand set")
+            panic!("[ERROR] A ld instruction should have an binary operand set");
         };
 
     let raw = opcode.raw;
@@ -22,7 +22,7 @@ pub fn ld(opcode: &Opcode, system: &mut System){
         /* LD HL, SP + e8 */
         0xF8 => {
             let result = op2.get_value(system) + system.sp as usize;
-            
+            let lower_nibble_result = (op2.get_value(system) & 0x0F) + (system.sp & 0x0F) as usize; 
             op1.update(
                 result, 
                 system
@@ -30,8 +30,8 @@ pub fn ld(opcode: &Opcode, system: &mut System){
             
             system.set_zflag(false);
             system.set_nflag(false);
-            system.set_hflag((result & (1 << 3)) != 0);
-            system.set_cflag((result & (1 << 7)) != 0);
+            system.set_hflag(lower_nibble_result != 0);
+            system.set_cflag((result & 0x100) != 0);
         }
         /* LD A, [HL-] | LD A, [HL+] */
         0x3A | 0x2A => {
@@ -134,20 +134,23 @@ pub fn pop(opcode: &Opcode, system: &mut System){
 
 /* NOTE: This function is used with ADC and ADD */
 pub fn add(opcode: &Opcode, system: &mut System){
-    if let OperandSet::Unary(ref op) = opcode.operand {
+    if 
+        let OperandSet::Binary(ref op1, ref op2) = opcode.operand &&
+        (!is_16bit_operand(op1.as_ref()) && !is_16bit_operand(op2.as_ref())) 
+    {
         let result = 
             if 
                 opcode.raw == 0x88 ||
                 opcode.raw == 0x8E ||
                 opcode.raw == 0xCE 
             {
-                op.get_value(system) + system.get_cflag() as usize + system.a as usize
+                op1.get_value(system) + op2.get_value(system) + system.get_cflag() as usize 
             }
             else {
-                op.get_value(system) +  system.a as usize
+                op1.get_value(system) +  op2.get_value(system)
             };
         
-        op.update(result, system);
+        op1.update(result, system);
 
         system.set_zflag(result == 0);
         system.set_nflag(false);
@@ -177,12 +180,12 @@ pub fn add(opcode: &Opcode, system: &mut System){
 
 /* NOTE: This function is used with SBC and SUB */
 pub fn sub(opcode: &Opcode, system: &mut System){
-    let operand = 
-        if let OperandSet::Unary(ref op) = opcode.operand {
-            op
+    let (op1, op2) = 
+        if let OperandSet::Binary(ref op1, ref op2) = opcode.operand {
+            (op1, op2)
         }
         else {
-            panic!("[ERROR] An sub/sbc opcode should have an unary operand set");
+            panic!("[ERROR] An sub/sbc opcode should have an binary operand set");
         };
     
     let result = 
@@ -191,13 +194,13 @@ pub fn sub(opcode: &Opcode, system: &mut System){
             opcode.raw == 0x9E ||
             opcode.raw == 0xDE 
         {
-            system.a as usize - operand.get_value(system) - system.get_cflag() as usize 
+            op1.get_value(system) - op2.get_value(system) - system.get_cflag() as usize 
         }
         else {
-            system.a as usize - operand.get_value(system) 
+            op1.get_value(system) - op2.get_value(system) 
         };
 
-    operand.update(result, system);
+    op1.update(result, system);
 
     system.set_zflag(result == 0);
     system.set_nflag(true);
@@ -207,15 +210,17 @@ pub fn sub(opcode: &Opcode, system: &mut System){
 }
 
 pub fn cp(opcode: &Opcode, system: &mut System){
-    let operand = 
-        if let OperandSet::Unary(ref op) = opcode.operand {
-            op
+    let (op1, op2) = 
+        if let OperandSet::Binary(ref op1, ref op2) = opcode.operand {
+            (op1, op2)
         }
         else {
-            panic!("[ERROR] A cp opcode should have an unary operand set");
+            panic!("[ERROR] An cp opcode should have an binary operand set");
         };
     
-    let result = operand.get_value(system) -  system.a as usize;
+    let result = op1.get_value(system) - op2.get_value(system);
+        
+    op1.update(result, system);
     
     system.set_zflag(result == 0);
     system.set_nflag(true);
@@ -271,17 +276,17 @@ pub fn dec(opcode: &Opcode, system: &mut System){
 }
 
 pub fn and(opcode: &Opcode, system: &mut System){
-    let operand = 
-        if let OperandSet::Unary(ref op) = opcode.operand {
-            op
+    let (op1, op2) = 
+        if let OperandSet::Binary(ref op1, ref op2) = opcode.operand {
+            (op1, op2)
         }
         else {
-            panic!("[ERROR] A and opcode should have an unary operand set");
+            panic!("[ERROR] An and opcode should have a binary operand set");
         };
     
-    let result = system.a as usize & operand.get_value(system);
+    let result = op1.get_value(system) | op2.get_value(system);
     
-    operand.update(result, system);
+    op1.update(result, system);
 
     system.set_zflag(result == 0);
     system.set_nflag(false);
@@ -290,17 +295,17 @@ pub fn and(opcode: &Opcode, system: &mut System){
 }
 
 pub fn or(opcode: &Opcode, system: &mut System){
-    let operand = 
-        if let OperandSet::Unary(ref op) = opcode.operand {
-            op
+    let (op1, op2) = 
+        if let OperandSet::Binary(ref op1, ref op2) = opcode.operand {
+            (op1, op2)
         }
         else {
-            panic!("[ERROR] A or opcode should have an unary operand set");
+            panic!("[ERROR] An or opcode should have a binary operand set");
         };
     
-    let result = system.a as usize | operand.get_value(system);
+    let result = op1.get_value(system) | op2.get_value(system);
     
-    operand.update(result, system);
+    op1.update(result, system);
 
     system.set_zflag(result == 0);
     system.set_nflag(false);
@@ -309,17 +314,17 @@ pub fn or(opcode: &Opcode, system: &mut System){
 }
 
 pub fn xor(opcode: &Opcode, system: &mut System){
-    let operand = 
-        if let OperandSet::Unary(ref op) = opcode.operand {
-            op
+    let (op1, op2) = 
+        if let OperandSet::Binary(ref op1, ref op2) = opcode.operand {
+            (op1, op2)
         }
         else {
-            panic!("[ERROR] A xor opcode should have an unary operand set");
+            panic!("[ERROR] A xor opcode should have a binary operand set");
         };
     
-    let result = system.a as usize ^ operand.get_value(system);
+    let result = op1.get_value(system) ^ op2.get_value(system);
     
-    operand.update(result, system);
+    op1.update(result, system);
 
     system.set_zflag(result == 0);
     system.set_nflag(false);
@@ -327,13 +332,13 @@ pub fn xor(opcode: &Opcode, system: &mut System){
     system.set_cflag(false);
 }
 
-pub fn ccf(opcode: &Opcode, system: &mut System){
+pub fn ccf(_opcode: &Opcode, system: &mut System){
     system.set_nflag(false);
     system.set_hflag(false);
     system.set_cflag(!system.get_cflag());
 }
 
-pub fn scf(opcode: &Opcode, system: &mut System){
+pub fn scf(_opcode: &Opcode, system: &mut System){
     system.set_nflag(false);
     system.set_hflag(false);
     system.set_cflag(true);
@@ -343,8 +348,240 @@ pub fn daa(opcode: &Opcode, system: &mut System){
 
 }
 
-pub fn cpl(opcode: &Opcode, system: &mut System){
+pub fn cpl(_opcode: &Opcode, system: &mut System){
     system.a = !system.a;
     system.set_nflag(true);
     system.set_hflag(true);
+}
+
+pub fn rlc(opcode: &Opcode, system: &mut System){
+    let operand = 
+        if let OperandSet::Unary(ref op) = opcode.operand{
+            op
+        }
+        else {
+            panic!("[ERROR] rlc instruction should have an unary operand set");
+        };
+    
+    if is_16bit_operand(operand.as_ref()) {
+        panic!("[ERROR] rlc can not be an 16 bit operand");
+    }
+
+    let b7 = ((operand.get_value(system) & (1 << 7)) != 0) as u8;
+    operand.update(
+        (operand.get_value(system) << 1) | b7 as usize, 
+        system
+    );
+
+    if opcode.raw == 0x07{
+        system.set_zflag(false);
+    }
+    else {
+        let result = operand.get_value(system);
+        system.set_zflag(result == 0);
+    }
+    system.set_nflag(false);
+    system.set_hflag(false);
+    system.set_cflag(b7 != 0);
+}
+
+pub fn rl(opcode: &Opcode, system: &mut System){
+    let operand = 
+        if let OperandSet::Unary(ref op) = opcode.operand{
+            op
+        }
+        else {
+            panic!("[ERROR] rl instruction should have an unary operand set");
+        };
+    
+    if is_16bit_operand(operand.as_ref()) {
+        panic!("[ERROR] rl can not be an 16 bit operand");
+    }
+
+    let b7 = ((operand.get_value(system) & (1 << 7)) != 0) as u8;
+    operand.update(
+        (operand.get_value(system) << 1) | system.get_cflag() as usize, 
+        system
+    );
+
+    if opcode.raw == 0x17{
+        system.set_zflag(false);
+    }
+    else {
+        let result = operand.get_value(system);
+        system.set_zflag(result == 0);
+    }
+    system.set_nflag(false);
+    system.set_hflag(false);
+    system.set_cflag(b7 != 0);
+}
+
+pub fn rrc(opcode: &Opcode, system: &mut System){
+    let operand = 
+        if let OperandSet::Unary(ref op) = opcode.operand{
+            op
+        }
+        else {
+            panic!("[ERROR] rrc instruction should have an unary operand set");
+        };
+    
+    if is_16bit_operand(operand.as_ref()) {
+        panic!("[ERROR] rrc can not be an 16 bit operand");
+    }
+
+    let b0 = (operand.get_value(system) & 1) as u8;
+    operand.update(
+        (operand.get_value(system) >> 1) | b0 as usize, 
+        system
+    );
+
+    if opcode.raw == 0x0F{
+        system.set_zflag(false);
+    }
+    else {
+        let result = operand.get_value(system);
+        system.set_zflag(result == 0);
+    }
+    system.set_nflag(false);
+    system.set_hflag(false);
+    system.set_cflag(b0 != 0);
+}
+
+pub fn rr(opcode: &Opcode, system: &mut System){
+    let operand = 
+        if let OperandSet::Unary(ref op) = opcode.operand{
+            op
+        }
+        else {
+            panic!("[ERROR] rr instruction should have an unary operand set");
+        };
+    
+    if is_16bit_operand(operand.as_ref()) {
+        panic!("[ERROR] rr can not be an 16 bit operand");
+    }
+
+    let b0 = (operand.get_value(system) & 1) as u8;
+    operand.update(
+        (operand.get_value(system) >> 1) | system.get_cflag() as usize, 
+        system
+    );
+
+    if opcode.raw == 0x1F{
+        system.set_zflag(false);
+    }
+    else {
+        let result = operand.get_value(system);
+        system.set_zflag(result == 0);
+    }
+    system.set_nflag(false);
+    system.set_hflag(false);
+    system.set_cflag(b0 != 0);
+}
+
+pub fn sla(opcode: &Opcode, system: &mut System){
+    let operand = 
+        if let OperandSet::Unary(ref op) = opcode.operand{
+            op
+        }
+        else {
+            panic!("[ERROR] sla instruction should have an unary operand set");
+        };
+    
+    if is_16bit_operand(operand.as_ref()) {
+        panic!("[ERROR] sla can not be an 16 bit operand");
+    }
+
+    let b7 = ((operand.get_value(system) & (1 << 7)) != 0) as u8;
+    operand.update(
+        operand.get_value(system) << 1, 
+        system
+    );
+
+    let result = operand.get_value(system);
+    system.set_zflag(result == 0);
+    system.set_nflag(false);
+    system.set_hflag(false);
+    system.set_cflag(b7 != 0);
+}
+
+pub fn sra(opcode: &Opcode, system: &mut System){
+    let operand = 
+        if let OperandSet::Unary(ref op) = opcode.operand{
+            op
+        }
+        else {
+            panic!("[ERROR] sra instruction should have an unary operand set");
+        };
+    
+    if is_16bit_operand(operand.as_ref()) {
+        panic!("[ERROR] sra can not be an 16 bit operand");
+    }
+
+    let b0 = (operand.get_value(system) & 1) as u8;
+    let b7 = ((operand.get_value(system) & (1 << 7)) != 0) as u8;
+    operand.update(
+        (operand.get_value(system) >> 1) | (b7 << 7) as usize, 
+        system
+    );
+
+    let result = operand.get_value(system);
+    system.set_zflag(result == 0);
+    system.set_nflag(false);
+    system.set_hflag(false);
+    system.set_cflag(b0 != 0);
+}
+
+pub fn swap(opcode: &Opcode, system: &mut System){
+    let operand = 
+        if let OperandSet::Unary(ref op) = opcode.operand{
+            op
+        }
+        else {
+            panic!("[ERROR] swap instruction should have an unary operand set");
+        };
+    
+    if is_16bit_operand(operand.as_ref()) {
+        panic!("[ERROR] swap can not be an 16 bit operand");
+    }
+
+    operand.update(
+        (operand.get_value(system) & 0x0F) | (operand.get_value(system) & 0xF0), 
+        system
+    );
+
+    let result = operand.get_value(system);
+    system.set_zflag(result == 0);
+    system.set_nflag(false);
+    system.set_hflag(false);
+    system.set_cflag(false);
+}
+
+pub fn srl(opcode: &Opcode, system: &mut System){
+    let operand = 
+        if let OperandSet::Unary(ref op) = opcode.operand{
+            op
+        }
+        else {
+            panic!("[ERROR] srl instruction should have an unary operand set");
+        };
+    
+    if is_16bit_operand(operand.as_ref()) {
+        panic!("[ERROR] srl can not be an 16 bit operand");
+    }
+
+    let b0 = (operand.get_value(system) & 1) as u8;
+    operand.update(
+        operand.get_value(system) >> 1, 
+        system
+    );
+
+    let result = operand.get_value(system);
+    system.set_zflag(result == 0);
+    system.set_nflag(false);
+    system.set_hflag(false);
+    system.set_cflag(b0 != 0);
+}
+
+pub fn bit(opcode: &Opcode, system: &mut System){
+
 }

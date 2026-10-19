@@ -31,7 +31,6 @@ pub trait Operand{
     }
 }
 
-
 #[derive(Clone)]
 pub enum OperandSet{
     Binary(Box<dyn Operand>, Box<dyn Operand>),
@@ -396,6 +395,7 @@ macro_rules! operand {
         OperandSet::Nullary
     }
 }
+
 pub fn build_unprefixed_map() -> [Option<Opcode>; 256] {
     [
         Some(Opcode::new(0x00, "NOP ", operand!(), vec![4])),

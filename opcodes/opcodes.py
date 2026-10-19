@@ -41,7 +41,6 @@ opcodes_with_flags = [
     "CALL"
 ]
 
-
 def split_union_register(st):
     reg1 = st[0]
     reg2 = st[1]
@@ -152,8 +151,6 @@ for key in prefixed.keys():
     prefixed_translation.append(
         f"Opcode::new({key}, \"{mnemonic}\", operand!({operands}), vec!{prefixed[key]["cycles"]})"
     )
-
-
 
 with open("data/opcodes_translations.txt", "w") as file:
     unprefixed_st = ",\n".join(unprefixed_translation) + "\n"*3
