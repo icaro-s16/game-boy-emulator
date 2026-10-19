@@ -26,7 +26,7 @@ flags_map = {
     "N": "(Flag::N)"
 }
 
-mnemonic_map = {
+mnemonics_map = {
     "a16": "u16",
     "a8": "u8",
     "n16": "u16",
@@ -34,7 +34,7 @@ mnemonic_map = {
     "e8": "i8"
 }
 
-opcodes_with_flags = [
+opcodes_with_flag = [
     "JR", 
     "JP", 
     "RET", 
@@ -44,9 +44,6 @@ opcodes_with_flags = [
 def split_union_register(st):
     reg1 = st[0]
     reg2 = st[1]
-
-    if reg1 not in operands_map.keys() or reg2 not in operands_map.keys():
-        raise RuntimeError()
 
     return f"({operands_map[reg1]},{operands_map[reg2]})"
 
@@ -85,72 +82,53 @@ NOTE: This program does not handle the construction of the opcode
 LD HL, SP + e8 and constructs it as LD HL, SP, e8, so you have to 
 correct it manually.
 '''
+def get_translation(map, is_optional):
+    res = []
 
-unprefixed_translation = []
+    for key in map.keys():
+        operands = ""
 
-for key in unprefixed.keys():
-    operands = ""
+        if is_optional and "ILLEGAL" == map[key]["mnemonic"][:-3]:
+            res.append("None")
+            continue
+        else:
+            operands = get_operands(
+                map[key]["operands"], 
+                (map[key]["mnemonic"] in opcodes_with_flag and len(map[key]["operands"]) == 2) or 
+                (map[key]["mnemonic"] == "RET" and len(map[key]["operands"]) == 1)
+            )
 
-    if "ILLEGAL" == unprefixed[key]["mnemonic"][:-3]:
-        unprefixed_translation.append("None")
-        continue
-    else:
-        operands = get_operands(
-            unprefixed[key]["operands"], 
-            (unprefixed[key]["mnemonic"] in opcodes_with_flags and len(unprefixed[key]["operands"]) == 2) or 
-            (unprefixed[key]["mnemonic"] == "RET" and len(unprefixed[key]["operands"]) == 1)
+        operands_mnemonic = []
+
+        for op in map[key]["operands"]:
+            name = op["name"]
+            
+            if name in mnemonics_map.keys():
+                name = mnemonics_map[name]
+
+            if "decrement" in op.keys():
+                name += "-"
+            elif "increment" in op.keys():
+                name += "+"
+            
+            if not op["immediate"]:
+                name = f"[{name}]"
+
+            operands_mnemonic.append(name)
+
+        mnemonic = map[key]["mnemonic"] + " " + ", ".join(operands_mnemonic)
+        res.append(
+            f"Some(Opcode::new({key}, \"{mnemonic}\", operand!({operands}), vec![{map[key]["cycles"]}]))" if is_optional
+            else f"Opcode::new({key}, \"{mnemonic}\", operand!({operands}), vec![{map[key]["cycles"]}])"   
         )
 
-    operand_names = []
+    return res
 
-    for op in unprefixed[key]["operands"]:
-        name = op["name"]
-        
-        if name in mnemonic_map.keys():
-            name = mnemonic_map[name]
+unprefixed_translation = get_translation(unprefixed, True)
 
-        if "decrement" in op.keys():
-            name += "-"
-        elif "increment" in op.keys():
-            name += "+"
-        
-        if not op["immediate"]:
-            name = f"[{name}]"
+prefixed_translation = get_translation(prefixed, False)
 
-        operand_names.append(name)
 
-    mnemonic = unprefixed[key]["mnemonic"] + " " + ", ".join(operand_names)
-    unprefixed_translation.append(
-        f"Some(Opcode::new({key}, \"{mnemonic}\", operand!({operands}), vec!{unprefixed[key]["cycles"]}))"
-    )
-    
-prefixed_translation = []
-
-for key in prefixed.keys():
-    operands = ""
-
-    operands = get_operands(
-        prefixed[key]["operands"], 
-        (prefixed[key]["mnemonic"] in opcodes_with_flags and len(prefixed[key]["operands"]) == 2) or 
-        (prefixed[key]["mnemonic"] == "RET" and len(prefixed[key]["operands"]) == 1)
-    )
-
-    operand_names = []
-
-    for op in prefixed[key]["operands"]:
-        name = op["name"]
-        if name in operands_map.keys():
-            name = operands_map[name]
-        
-        if not op["immediate"]:
-            name = f"[{name}]"
-
-        operand_names.append(name)
-
-    mnemonic = prefixed[key]["mnemonic"] + " " + ", ".join(operand_names)
-    prefixed_translation.append(
-        f"Opcode::new({key}, \"{mnemonic}\", operand!({operands}), vec!{prefixed[key]["cycles"]})"
-    )
 
 with open("data/opcodes_translations.txt", "w") as file:
     unprefixed_st = ",\n".join(unprefixed_translation) + "\n"*3
