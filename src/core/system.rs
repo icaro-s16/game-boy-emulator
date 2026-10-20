@@ -33,8 +33,12 @@ pub enum Flag{
 }
 
 pub struct System{
+    pub opcodes_map: [Option<Opcode>; 255],
+    pub prefixed_opcodes_map: [Opcode; 255],
     pub wram: [Byte; MEMORY_SIZE],
     pub vram: [Byte; MEMORY_SIZE],
+    pub sp: Word,
+    pub pc: Word,
     pub a: Byte,
     pub f: Byte,
     pub b: Byte,
@@ -42,11 +46,7 @@ pub struct System{
     pub d: Byte,
     pub e: Byte,
     pub h: Byte,
-    pub l: Byte,
-    pub sp: Word,
-    pub pc: Word,
-    pub opcodes_map: [Option<Opcode>; 255],
-    pub prefixed_opcodes_map: [Opcode; 255]
+    pub l: Byte
 }
 
 impl System{

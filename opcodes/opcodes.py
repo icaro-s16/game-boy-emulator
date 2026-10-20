@@ -118,8 +118,8 @@ def get_translation(map, is_optional):
 
         mnemonic = map[key]["mnemonic"] + " " + ", ".join(operands_mnemonic)
         res.append(
-            f"Some(Opcode::new({key}, \"{mnemonic}\", operand!({operands}), vec![{map[key]["cycles"]}]))" if is_optional
-            else f"Opcode::new({key}, \"{mnemonic}\", operand!({operands}), vec![{map[key]["cycles"]}])"   
+            f"Some(Opcode::new({key}, \"{mnemonic}\", operand!({operands}), vec!{map[key]["cycles"]}))" if is_optional
+            else f"Opcode::new({key}, \"{mnemonic}\", operand!({operands}), vec!{map[key]["cycles"]})"   
         )
 
     return res
