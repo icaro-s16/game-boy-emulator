@@ -1,132 +1,59 @@
-use crate::core::opcode::Opcode;
+use crate::core::cpu::*;
+use std::time::Instant;
 
 pub type Byte = u8;
 pub type Word = u16;
 
-const MEMORY_SIZE: usize = 8 * 1024;
-const DISPLAY_HEIGHT: usize = 144;
-const DISPLAY_WIDGHT: usize = 160;
-
-#[derive(Debug, Clone)]
-pub enum Register{
-    Union(Box<Register>, Box<Register>),
-    A,
-    F,
-    B,
-    C,
-    D,
-    E,
-    H,
-    L,
-    PC,
-    SP
-}
-
-#[derive(Debug, Clone)]
-pub enum Flag{
-    Z,
-    NZ,
-    C,
-    NC,
-    N,
-    H
-}
+pub const MEMORY_SIZE: usize = 32 * 1024;
+const MASTER_CLOCK_HZ: u32 = 4_194_304;
+const T_CYCLE_DELAY: f64 = 1.0 / (MASTER_CLOCK_HZ as f64 / 4.0);
+pub const M_CYCLE: u8 = 4;   
 
 pub struct System{
-    pub opcodes_map: [Option<Opcode>; 255],
-    pub prefixed_opcodes_map: [Opcode; 255],
-    pub wram: [Byte; MEMORY_SIZE],
-    pub vram: [Byte; MEMORY_SIZE],
-    pub sp: Word,
-    pub pc: Word,
-    pub a: Byte,
-    pub f: Byte,
-    pub b: Byte,
-    pub c: Byte,
-    pub d: Byte,
-    pub e: Byte,
-    pub h: Byte,
-    pub l: Byte
+    pub cpu: Cpu,
+    // pub ppu: Ppu,
+    // pub apu: Apu,
 }
 
 impl System{
-    pub fn fetch_opcode(&mut self) -> Opcode{
-        let opcode = self.vram[self.pc as usize];
-        self.pc += 1;
-        if opcode == 0xCB{
-            let opcode = self.vram[self.pc as usize];
-            self.pc += 1;
-            self.prefixed_opcodes_map[opcode as usize].clone()
-        }
-        else{
-            self.opcodes_map[opcode as usize].clone().unwrap()
+    pub fn new() -> Self{
+        Self {
+            cpu: Cpu::new()
         }
     }
 
-    pub fn get_zflag(&self) -> bool{
-        (self.f & (1 << 7)) != 0
-    }
+    pub fn run(){
+        let mut ram = [0;MEMORY_SIZE];
+        let mut system = Self::new();
+        let mut tc_acca: u8 = 0;
+        let mut now = Instant::now();
+        let mut delta = 0.0;
+        let quit = false;
 
-    pub fn set_zflag(&mut self, value: bool){
-        if value {
-            self.f |= 1 << 7;
-        }
-        else {
-            /* 
-             *   f: 10100110
-             *
-             *   1<<7 = 10000000
-             *   !(10000000) = 01111111
-             *
-             *   f & 01111111
-             *
-             *   10100110 & 01111111 = 00100110
+        while !quit {
+
+            delta += now.elapsed().as_secs_f64();
+            now = Instant::now();
+
+            if T_CYCLE_DELAY > delta {continue;}
+
+            delta -= T_CYCLE_DELAY;
+
+            /* TODO: PPU T-Cycle pipeline
+             * TODO: APU: T-Cycle pipeline
              */
-            self.f &= !(1 << 7);
-        }
-    }
 
-    pub fn get_nflag(&self) -> bool{
-        (self.f & (1 << 6)) != 0
-    }
+            /* NOTE: The tc_acca is 
+             * zeroed out, after 
+             * complete an CPU state.
+             */
+            system.cpu.cycle(&mut ram, &mut tc_acca);
 
-    pub fn set_nflag(&mut self, value: bool){
-        if value {
-            self.f |= 1 << 6;
         }
-        else {
-            self.f &= !(1 << 6);
-        }
-    }
 
-    pub fn get_hflag(&self) -> bool{
-        (self.f & (1 << 5)) != 0
-    }
-
-    pub fn set_hflag(&mut self, value: bool){
-        if value {
-            self.f |= 1 << 5;
-        }
-        else {
-            self.f &= !(1 << 5);
-        }
-    }
-
-    pub fn get_cflag(&self) -> bool{
-        (self.f & (1 << 4)) != 0
-    }
-
-    pub fn set_cflag(&mut self, value: bool){
-        if value {
-            self.f |= 1 << 4;
-        }
-        else {
-            self.f &= !(1 << 4);
-        }
     }
 
 }
-
 
 
 

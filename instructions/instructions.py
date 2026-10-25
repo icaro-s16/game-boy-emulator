@@ -34,12 +34,61 @@ mnemonics_map = {
     "e8": "i8"
 }
 
+func_map = {
+    "NOP":"nop",
+    "LD":"ld",
+    "LDH":"ldh",
+    "PUSH":"push",
+    "POP":"pop",
+    "ADD":"add",
+    "ADC":"add",
+    "SBC":"sub",
+    "SUB":"sub",
+    "CP":"cp",
+    "INC":"inc",
+    "DEC":"dec",
+    "AND":"and",
+    "OR":"or",
+    "XOR":"xor",
+    "CCF":"ccf",
+    "SCF":"scf",
+    "DAA":"daa",
+    "CPL":"cpl",
+    "RLC":"rlc",
+    "RLCA":"rlc",
+    "RLA":"rl",
+    "RL":"rl",
+    "RRCA":"rrc",
+    "RRC":"rrc",
+    "RRA":"rr",
+    "RR":"rr",
+    "SLA":"sla",
+    "SRA":"sra",
+    "SWAP":"swap",
+    "SRL":"srl",
+    "BIT":"bit",
+    "RES":"res",
+    "SET":"set",
+    "JP":"jp",
+    "JR":"jr",
+    "CALL":"call",
+    "RST":"call",
+    "RET":"ret",
+    "RETI":"ret",
+    "HALT":"halt",
+    "STOP":"stop",
+    "DAA":"daa",
+    "DI":"di",
+    "EI":"ei",
+}
+
 opcodes_with_flag = [
     "JR", 
     "JP", 
     "RET", 
     "CALL"
 ]
+
 
 def split_union_register(st):
     reg1 = st[0]
@@ -88,7 +137,7 @@ def get_translation(map, is_optional):
     for key in map.keys():
         operands = ""
 
-        if is_optional and "ILLEGAL" == map[key]["mnemonic"][:-3]:
+        if is_optional and ("ILLEGAL" == map[key]["mnemonic"][:-3] or "PREFIX" == map[key]["mnemonic"]):
             res.append("None")
             continue
         else:
@@ -118,8 +167,8 @@ def get_translation(map, is_optional):
 
         mnemonic = map[key]["mnemonic"] + " " + ", ".join(operands_mnemonic)
         res.append(
-            f"Some(Opcode::new({key}, \"{mnemonic}\", operand!({operands}), vec!{map[key]["cycles"]}))" if is_optional
-            else f"Opcode::new({key}, \"{mnemonic}\", operand!({operands}), vec!{map[key]["cycles"]})"   
+            f"Some(Instruction::new({f"0xCB{key[-2:]}"}, \"{mnemonic}\", operand!({operands}), &{func_map[map[key]["mnemonic"]]}))" if is_optional
+            else f"Instruction::new({f"0xCB{key[-2:]}"}, \"{mnemonic}\", operand!({operands}), &{func_map[map[key]["mnemonic"]]})"   
         )
 
     return res

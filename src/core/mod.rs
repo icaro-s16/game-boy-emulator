@@ -1,4 +1,4 @@
 pub mod system;
-pub mod opcode;
-pub mod instructions;
-
+pub mod handlers;
+pub mod instruction;
+pub mod cpu;
