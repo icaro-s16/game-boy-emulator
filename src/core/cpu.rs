@@ -259,9 +259,9 @@ impl Cpu{
                 (instruction.execute)(&instruction, self, ram);
 
                 /* NOTE: This is used to apply the delay of 
-                 * EI instructions, which enable the IME after 
-                 * the execution of the instruction after EI
-                 */
+                * the EI instruction, which enables the IME after 
+                * the execution of the following instruction.
+                */
                 if should_enable_ime
                 {self.ime = IME_ENABLED;}
 
@@ -305,11 +305,12 @@ impl Cpu{
         ram[DIV_ADDR + 1] = 
             div as u8 & 0xFF;
 
-        /* NOTE: The increment rate of tima is controled
-         * by falling edge of the last and operation, between
-         * the div bit (which controle the increment rate)
-         * with the Tac enable bit, and the current one.
-         */
+        /* NOTE: The increment rate of TIMA is controlled
+        * by the falling edge of the AND operation between
+        * the DIV bit (which controls the increment rate)
+        * and the TAC enable bit, comparing the last result
+        * with the current one.
+        */
         let and_res = 
             (div & (1 << DIV_FALLING_EDGE[(ram[TAC_ADDR] & 0b11) as usize])) != 0 &&
             (ram[TAC_ADDR] & (1 << TIMA_ENABLE_BIT)) != 0;

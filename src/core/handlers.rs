@@ -39,17 +39,16 @@ pub fn daa(instruction: &Instruction, cpu: &mut Cpu, _ram: &mut [Byte;MEMORY_SIZ
 
         let mut should_carry = false;
 
-        /* NOTE: If we want to transform a 
-         * lower nibble from hex to BCD form
-         * which each nibble has to be lower 
-         * than 0x09, we just have to add/sub 
-         * 0x06
-         * 
-         * (0x06 is the number of values greater
-         * than 0x09)
-         * 
-         * ex: 0x07 + 0x07 = 0x0E + 0x06 = 0x14
-         */
+        /* NOTE: To convert a lower nibble from hex 
+        * to BCD format (where each nibble cannot 
+        * exceed 0x09), we just need to add or 
+        * subtract 0x06.
+        * 
+        * (0x06 accounts for the 6 hex values 
+        * that are greater than 9, i.e., A through F).
+        * 
+        * Example: 0x07 + 0x07 = 0x0E; 0x0E + 0x06 = 0x14
+        */
         if 
             !nflag && (cpu.a & 0x0F) > 0x09 ||
             hcflag
