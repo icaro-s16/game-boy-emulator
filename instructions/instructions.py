@@ -167,8 +167,8 @@ def get_translation(map, is_optional):
 
         mnemonic = map[key]["mnemonic"] + " " + ", ".join(operands_mnemonic)
         res.append(
-            f"Some(Instruction::new({f"0xCB{key[-2:]}"}, \"{mnemonic}\", operand!({operands}), &{func_map[map[key]["mnemonic"]]}))" if is_optional
-            else f"Instruction::new({f"0xCB{key[-2:]}"}, \"{mnemonic}\", operand!({operands}), &{func_map[map[key]["mnemonic"]]})"   
+            f"Some(Instruction::new({key}, \"{mnemonic}\", operand!({operands}), vec!{map[key]["cycles"]}, &{func_map[map[key]["mnemonic"]]}))" if is_optional
+            else f"Instruction::new({key}, \"{mnemonic}\", operand!({operands}), vec!{map[key]["cycles"]}, &{func_map[map[key]["mnemonic"]]})"   
         )
 
     return res

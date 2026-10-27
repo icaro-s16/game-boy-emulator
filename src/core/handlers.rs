@@ -9,14 +9,17 @@ use crate::core::{
     }
 };
   
-
 /* TODO: HALT
  * TODO: STOP
- * TODO: EI 
- * TODO: DAA
+ * DONE: EI 
+ * DONE: DAA
  * TODO: RETI
- * TODO: DI
+ * DONE: DI
  */
+
+pub const SHOULD_ENABLE_IME: u8 = 0xA0;
+pub const IME_ENABLED: u8 = 0x0A;
+pub const IME_DISABLED: u8 = 0x0D;
 
 const HC_8B_MASK: usize = 0xF;
 const HC_16B_MASK: usize = 0xFF;
@@ -25,19 +28,82 @@ const C_16B_MAKS: usize = 0xFFFF;
 
 pub fn halt(_instruction: &Instruction, _cpu: &mut Cpu, _ram: &mut [Byte;MEMORY_SIZE]){}
 pub fn stop(_instruction: &Instruction, _cpu: &mut Cpu, _ram: &mut [Byte;MEMORY_SIZE]){}
-pub fn ei(_instruction: &Instruction, _cpu: &mut Cpu, _ram: &mut [Byte;MEMORY_SIZE]){}
-pub fn daa(_instruction: &Instruction, _cpu: &mut Cpu, _ram: &mut [Byte;MEMORY_SIZE]){}
-pub fn di(_instruction: &Instruction, _cpu: &mut Cpu, _ram: &mut [Byte;MEMORY_SIZE]){}
 
+pub fn daa(instruction: &Instruction, cpu: &mut Cpu, _ram: &mut [Byte;MEMORY_SIZE]){
+    if let OperandSet::Nullary = instruction.operands { 
+        let mut offset = 0;
+
+        let cflag = cpu.get_cflag();
+        let hcflag = cpu.get_hflag();
+        let nflag = cpu.get_nflag();
+
+        let mut should_carry = false;
+
+        /* NOTE: If we want to transform a 
+         * lower nibble from hex to BCD form
+         * which each nibble has to be lower 
+         * than 0x09, we just have to add/sub 
+         * 0x06
+         * 
+         * (0x06 is the number of values greater
+         * than 0x09)
+         * 
+         * ex: 0x07 + 0x07 = 0x0E + 0x06 = 0x14
+         */
+        if 
+            !nflag && (cpu.a & 0x0F) > 0x09 ||
+            hcflag
+        {
+            offset = 0x06;
+        }
+
+        if  
+            !nflag && cpu.a > 0x99 ||
+            cflag
+        {
+            offset |= 0x60;
+            should_carry = true;
+        }
+
+        if nflag {
+            cpu.a = ((cpu.a as u16 + offset) & 0xFF) as u8 ;  
+        }
+        else {
+            cpu.a = ((cpu.a as u16 - offset) & 0xFF) as u8 ;
+        }
+
+        cpu.set_zflag(cpu.a == 0);
+        cpu.set_hflag(false);
+        cpu.set_cflag(should_carry);
+        return; 
+    }
+    panic!("[ERROR] daa should not have operands");  
+}
+
+pub fn di(instruction: &Instruction, cpu: &mut Cpu, _ram: &mut [Byte;MEMORY_SIZE]){
+    if let OperandSet::Nullary = instruction.operands { 
+        cpu.ime = IME_DISABLED;
+        return; 
+    }
+    panic!("[ERROR] di should not have operands");  
+}
+
+pub fn ei(instruction: &Instruction, cpu: &mut Cpu, _ram: &mut [Byte;MEMORY_SIZE]){
+    if let OperandSet::Nullary = instruction.operands { 
+        cpu.ime = SHOULD_ENABLE_IME;
+        return; 
+    }
+    panic!("[ERROR] ei should not have operands");  
+}
 
 pub fn nop(instruction: &Instruction, _cpu: &mut Cpu, _ram: &mut [Byte;MEMORY_SIZE]){
-    if let OperandSet::Nullary = instruction.operand { return; }
+    if let OperandSet::Nullary = instruction.operands { return; }
     panic!("[ERROR] nop should not have operands");
 }
 
 pub fn ld(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE]){
     let (op1, op2) =
-        if let OperandSet::Binary(ref op1, ref op2) = instruction.operand {
+        if let OperandSet::Binary(ref op1, ref op2) = instruction.operands {
             (op1, op2)
         }
         else {
@@ -104,7 +170,7 @@ pub fn ld(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE]
 }
 
 pub fn ldh(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE]){
-    if let OperandSet::Binary(ref op1, ref op2) = instruction.operand {
+    if let OperandSet::Binary(ref op1, ref op2) = instruction.operands {
         if let Some(address) = op2.as_any().downcast_ref::<Address>() {
             op1.update(
                 address.get_value_with_offset(
@@ -119,9 +185,9 @@ pub fn ldh(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE
         else if let Some(address) = op1.as_any().downcast_ref::<Address>() {
             address.update_with_offset(
                 op2.get_value(cpu, ram),
-                 0xFF, 
-                 cpu,
-                 ram
+                0xFF, 
+                cpu,
+                ram
             );
         }
         else{
@@ -134,15 +200,15 @@ pub fn ldh(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE
 }
 
 pub fn push(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE]){
-    let operand = 
-        if let OperandSet::Unary(ref op) = instruction.operand{
+    let operands = 
+        if let OperandSet::Unary(ref op) = instruction.operands{
             op
         }
         else {
-            panic!("[ERROR] push should have one operand");
+            panic!("[ERROR] push should have one operands");
         };
 
-    let bytes = (operand.get_value(cpu, ram) as u16).to_be_bytes();
+    let bytes = (operands.get_value(cpu, ram) as u16).to_be_bytes();
     cpu.sp -= 1;
     ram[cpu.sp as usize] = bytes[1];
     cpu.sp -= 1;
@@ -151,12 +217,12 @@ pub fn push(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZ
 }
 
 pub fn pop(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE]){
-    let operand = 
-        if let OperandSet::Unary(ref op) = instruction.operand{
+    let operands = 
+        if let OperandSet::Unary(ref op) = instruction.operands{
             op
         }
         else {
-            panic!("[ERROR] pop should have one operand");
+            panic!("[ERROR] pop should have one operands");
         };
     
     let sp_hbyte = ram[cpu.sp as usize];
@@ -164,7 +230,7 @@ pub fn pop(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE
     let sp_lbyte = ram[cpu.sp as usize];
     cpu.sp += 1;
 
-    operand.update(
+    operands.update(
         u16::from_be_bytes([sp_hbyte, sp_lbyte]) as usize, 
         cpu,
         ram
@@ -174,7 +240,7 @@ pub fn pop(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE
 /* NOTE: This function is used with ADC and ADD */
 pub fn add(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE]){
     if 
-        let OperandSet::Binary(ref op1, ref op2) = instruction.operand &&
+        let OperandSet::Binary(ref op1, ref op2) = instruction.operands &&
         (!is_16bit_operand(op1.as_ref()) && !is_16bit_operand(op2.as_ref())) 
     {
         let mut result = op1.get_value(cpu, ram) + op2.get_value(cpu, ram);
@@ -197,7 +263,7 @@ pub fn add(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE
         cpu.set_hflag(hc_result > HC_8B_MASK);
         cpu.set_cflag(result > C_8B_MASK);
     }
-    else if let OperandSet::Binary(ref op1, ref op2) = instruction.operand{
+    else if let OperandSet::Binary(ref op1, ref op2) = instruction.operands{
         let result = op1.get_value(cpu, ram) + op2.get_value(cpu, ram);
         
         let (c_mask, hc_mask) = 
@@ -225,7 +291,7 @@ pub fn add(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE
 /* NOTE: This function is used with SBC and SUB */
 pub fn sub(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE]){
     let (op1, op2) = 
-        if let OperandSet::Binary(ref op1, ref op2) = instruction.operand {
+        if let OperandSet::Binary(ref op1, ref op2) = instruction.operands {
             (op1, op2)
         }
         else {
@@ -256,7 +322,7 @@ pub fn sub(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE
 
 pub fn cp(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE]){
     let (op1, op2) = 
-        if let OperandSet::Binary(ref op1, ref op2) = instruction.operand {
+        if let OperandSet::Binary(ref op1, ref op2) = instruction.operands {
             (op1, op2)
         }
         else {
@@ -274,26 +340,26 @@ pub fn cp(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE]
 }
 
 pub fn inc(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE]){
-    let operand = 
-        if let OperandSet::Unary(ref op) = instruction.operand {
+    let operands = 
+        if let OperandSet::Unary(ref op) = instruction.operands {
             op
         }
         else {
-            panic!("[ERROR] inc should have one operand");
+            panic!("[ERROR] inc should have one operands");
         };
 
     let hc_mask = 
-        if is_16bit_operand(operand.as_ref()){
+        if is_16bit_operand(operands.as_ref()){
             HC_16B_MASK
         }
         else {
             HC_8B_MASK
         };
     
-    let result = operand.get_value(cpu, ram) + 1;
-    let hc_result = (operand.get_value(cpu, ram) & hc_mask) + 1;
+    let result = operands.get_value(cpu, ram) + 1;
+    let hc_result = (operands.get_value(cpu, ram) & hc_mask) + 1;
 
-    operand.update(result, cpu, ram);
+    operands.update(result, cpu, ram);
 
     cpu.set_zflag(result == 0);
     cpu.set_nflag(false);
@@ -301,26 +367,26 @@ pub fn inc(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE
 }
 
 pub fn dec(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE]){
-    let operand = 
-        if let OperandSet::Unary(ref op) = instruction.operand {
+    let operands = 
+        if let OperandSet::Unary(ref op) = instruction.operands {
             op
         }
         else {
-            panic!("[ERROR] dec should have one operand");
+            panic!("[ERROR] dec should have one operands");
         };
     
     let hc_mask = 
-        if is_16bit_operand(operand.as_ref()){
+        if is_16bit_operand(operands.as_ref()){
             HC_16B_MASK
         }
         else {
             HC_8B_MASK
         };
     
-    let result = operand.get_value(cpu, ram) - 1;
-    let hc_result = (operand.get_value(cpu, ram) & hc_mask) - 1;
+    let result = operands.get_value(cpu, ram) - 1;
+    let hc_result = (operands.get_value(cpu, ram) & hc_mask) - 1;
 
-    operand.update(result, cpu, ram);
+    operands.update(result, cpu, ram);
 
     cpu.set_zflag(result == 0);
     cpu.set_nflag(false);
@@ -329,7 +395,7 @@ pub fn dec(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE
 
 pub fn and(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE]){
     let (op1, op2) = 
-        if let OperandSet::Binary(ref op1, ref op2) = instruction.operand {
+        if let OperandSet::Binary(ref op1, ref op2) = instruction.operands {
             (op1, op2)
         }
         else {
@@ -348,7 +414,7 @@ pub fn and(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE
 
 pub fn or(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE]){
     let (op1, op2) = 
-        if let OperandSet::Binary(ref op1, ref op2) = instruction.operand {
+        if let OperandSet::Binary(ref op1, ref op2) = instruction.operands {
             (op1, op2)
         }
         else {
@@ -367,11 +433,11 @@ pub fn or(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE]
 
 pub fn xor(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE]){
     let (op1, op2) = 
-        if let OperandSet::Binary(ref op1, ref op2) = instruction.operand {
+        if let OperandSet::Binary(ref op1, ref op2) = instruction.operands {
             (op1, op2)
         }
         else {
-            panic!("[ERROR] xor should have two operand");
+            panic!("[ERROR] xor should have two operands");
         };
     
     let result = op1.get_value(cpu, ram) ^ op2.get_value(cpu, ram);
@@ -385,7 +451,7 @@ pub fn xor(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE
 }
 
 pub fn ccf(instruction: &Instruction, cpu: &mut Cpu, _ram: &mut [Byte;MEMORY_SIZE]){
-    if let OperandSet::Nullary = instruction.operand { 
+    if let OperandSet::Nullary = instruction.operands { 
         cpu.set_nflag(false);
         cpu.set_hflag(false);
         cpu.set_cflag(!cpu.get_cflag());
@@ -395,7 +461,7 @@ pub fn ccf(instruction: &Instruction, cpu: &mut Cpu, _ram: &mut [Byte;MEMORY_SIZ
 }
 
 pub fn scf(instruction: &Instruction, cpu: &mut Cpu, _ram: &mut [Byte;MEMORY_SIZE]){
-    if let OperandSet::Nullary = instruction.operand { 
+    if let OperandSet::Nullary = instruction.operands { 
         cpu.set_nflag(false);
         cpu.set_hflag(false);
         cpu.set_cflag(true);
@@ -405,7 +471,7 @@ pub fn scf(instruction: &Instruction, cpu: &mut Cpu, _ram: &mut [Byte;MEMORY_SIZ
 }
 
 pub fn cpl(instruction: &Instruction, cpu: &mut Cpu, _ram: &mut [Byte;MEMORY_SIZE]){
-    if let OperandSet::Nullary = instruction.operand { 
+    if let OperandSet::Nullary = instruction.operands { 
         cpu.a = !cpu.a;
         cpu.set_nflag(true);
         cpu.set_hflag(true);
@@ -415,21 +481,21 @@ pub fn cpl(instruction: &Instruction, cpu: &mut Cpu, _ram: &mut [Byte;MEMORY_SIZ
 }
 
 pub fn rlc(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE]){
-    let operand = 
-        if let OperandSet::Unary(ref op) = instruction.operand{
+    let operands = 
+        if let OperandSet::Unary(ref op) = instruction.operands{
             op
         }
         else {
-            panic!("[ERROR] rlc should have one operand");
+            panic!("[ERROR] rlc should have one operands");
         };
     
-    if is_16bit_operand(operand.as_ref()) {
-        panic!("[ERROR] rlc can not be an 16 bit operand");
+    if is_16bit_operand(operands.as_ref()) {
+        panic!("[ERROR] rlc can not be an 16 bit operands");
     }
 
-    let b7 = ((operand.get_value(cpu, ram) & (1 << 7)) != 0) as u8;
-    operand.update(
-        (operand.get_value(cpu, ram) << 1) | b7 as usize, 
+    let b7 = ((operands.get_value(cpu, ram) & (1 << 7)) != 0) as u8;
+    operands.update(
+        (operands.get_value(cpu, ram) << 1) | b7 as usize, 
         cpu,
         ram
     );
@@ -438,7 +504,7 @@ pub fn rlc(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE
         cpu.set_zflag(false);
     }
     else {
-        let result = operand.get_value(cpu, ram);
+        let result = operands.get_value(cpu, ram);
         cpu.set_zflag(result == 0);
     }
     cpu.set_nflag(false);
@@ -447,21 +513,21 @@ pub fn rlc(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE
 }
 
 pub fn rl(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE]){
-    let operand = 
-        if let OperandSet::Unary(ref op) = instruction.operand{
+    let operands = 
+        if let OperandSet::Unary(ref op) = instruction.operands{
             op
         }
         else {
-            panic!("[ERROR] rl should have one operand");
+            panic!("[ERROR] rl should have one operands");
         };
     
-    if is_16bit_operand(operand.as_ref()) {
-        panic!("[ERROR] rl can not be an 16 bit operand");
+    if is_16bit_operand(operands.as_ref()) {
+        panic!("[ERROR] rl can not be an 16 bit operands");
     }
 
-    let b7 = ((operand.get_value(cpu, ram) & (1 << 7)) != 0) as u8;
-    operand.update(
-        (operand.get_value(cpu, ram) << 1) | cpu.get_cflag() as usize, 
+    let b7 = ((operands.get_value(cpu, ram) & (1 << 7)) != 0) as u8;
+    operands.update(
+        (operands.get_value(cpu, ram) << 1) | cpu.get_cflag() as usize, 
         cpu,
         ram
     );
@@ -470,7 +536,7 @@ pub fn rl(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE]
         cpu.set_zflag(false);
     }
     else {
-        let result = operand.get_value(cpu, ram);
+        let result = operands.get_value(cpu, ram);
         cpu.set_zflag(result == 0);
     }
     cpu.set_nflag(false);
@@ -479,21 +545,21 @@ pub fn rl(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE]
 }
 
 pub fn rrc(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE]){
-    let operand = 
-        if let OperandSet::Unary(ref op) = instruction.operand{
+    let operands = 
+        if let OperandSet::Unary(ref op) = instruction.operands{
             op
         }
         else {
-            panic!("[ERROR] rrc should have one operand");
+            panic!("[ERROR] rrc should have one operands");
         };
     
-    if is_16bit_operand(operand.as_ref()) {
-        panic!("[ERROR] rrc can not be an 16 bit operand");
+    if is_16bit_operand(operands.as_ref()) {
+        panic!("[ERROR] rrc can not be an 16 bit operands");
     }
 
-    let b0 = (operand.get_value(cpu, ram) & 1) as u8;
-    operand.update(
-        (operand.get_value(cpu, ram) >> 1) | b0 as usize, 
+    let b0 = (operands.get_value(cpu, ram) & 1) as u8;
+    operands.update(
+        (operands.get_value(cpu, ram) >> 1) | b0 as usize, 
         cpu,
         ram
     );
@@ -502,7 +568,7 @@ pub fn rrc(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE
         cpu.set_zflag(false);
     }
     else {
-        let result = operand.get_value(cpu, ram);
+        let result = operands.get_value(cpu, ram);
         cpu.set_zflag(result == 0);
     }
     cpu.set_nflag(false);
@@ -511,21 +577,21 @@ pub fn rrc(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE
 }
 
 pub fn rr(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE]){
-    let operand = 
-        if let OperandSet::Unary(ref op) = instruction.operand{
+    let operands = 
+        if let OperandSet::Unary(ref op) = instruction.operands{
             op
         }
         else {
-            panic!("[ERROR] rr should have one operand");
+            panic!("[ERROR] rr should have one operands");
         };
     
-    if is_16bit_operand(operand.as_ref()) {
-        panic!("[ERROR] rr can not be an 16 bit operand");
+    if is_16bit_operand(operands.as_ref()) {
+        panic!("[ERROR] rr can not be an 16 bit operands");
     }
 
-    let b0 = (operand.get_value(cpu, ram) & 1) as u8;
-    operand.update(
-        (operand.get_value(cpu, ram) >> 1) | cpu.get_cflag() as usize, 
+    let b0 = (operands.get_value(cpu, ram) & 1) as u8;
+    operands.update(
+        (operands.get_value(cpu, ram) >> 1) | cpu.get_cflag() as usize, 
         cpu,
         ram
     );
@@ -534,7 +600,7 @@ pub fn rr(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE]
         cpu.set_zflag(false);
     }
     else {
-        let result = operand.get_value(cpu, ram);
+        let result = operands.get_value(cpu, ram);
         cpu.set_zflag(result == 0);
     }
     cpu.set_nflag(false);
@@ -543,26 +609,26 @@ pub fn rr(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE]
 }
 
 pub fn sla(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE]){
-    let operand = 
-        if let OperandSet::Unary(ref op) = instruction.operand{
+    let operands = 
+        if let OperandSet::Unary(ref op) = instruction.operands{
             op
         }
         else {
-            panic!("[ERROR] sla should have one operand");
+            panic!("[ERROR] sla should have one operands");
         };
     
-    if is_16bit_operand(operand.as_ref()) {
-        panic!("[ERROR] sla can not be an 16 bit operand");
+    if is_16bit_operand(operands.as_ref()) {
+        panic!("[ERROR] sla can not be an 16 bit operands");
     }
 
-    let b7 = ((operand.get_value(cpu, ram) & (1 << 7)) != 0) as u8;
-    operand.update(
-        operand.get_value(cpu, ram) << 1, 
+    let b7 = ((operands.get_value(cpu, ram) & (1 << 7)) != 0) as u8;
+    operands.update(
+        operands.get_value(cpu, ram) << 1, 
         cpu,
         ram
     );
 
-    let result = operand.get_value(cpu, ram);
+    let result = operands.get_value(cpu, ram);
     cpu.set_zflag(result == 0);
     cpu.set_nflag(false);
     cpu.set_hflag(false);
@@ -570,27 +636,27 @@ pub fn sla(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE
 }
 
 pub fn sra(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE]){
-    let operand = 
-        if let OperandSet::Unary(ref op) = instruction.operand{
+    let operands = 
+        if let OperandSet::Unary(ref op) = instruction.operands{
             op
         }
         else {
-            panic!("[ERROR] sra should have one operand");
+            panic!("[ERROR] sra should have one operands");
         };
     
-    if is_16bit_operand(operand.as_ref()) {
-        panic!("[ERROR] sra can not be an 16 bit operand");
+    if is_16bit_operand(operands.as_ref()) {
+        panic!("[ERROR] sra can not be an 16 bit operands");
     }
 
-    let b0 = (operand.get_value(cpu, ram) & 1) as u8;
-    let b7 = ((operand.get_value(cpu, ram) & (1 << 7)) != 0) as u8;
-    operand.update(
-        (operand.get_value(cpu, ram) >> 1) | (b7 << 7) as usize, 
+    let b0 = (operands.get_value(cpu, ram) & 1) as u8;
+    let b7 = ((operands.get_value(cpu, ram) & (1 << 7)) != 0) as u8;
+    operands.update(
+        (operands.get_value(cpu, ram) >> 1) | (b7 << 7) as usize, 
         cpu,
         ram
     );
 
-    let result = operand.get_value(cpu, ram);
+    let result = operands.get_value(cpu, ram);
     cpu.set_zflag(result == 0);
     cpu.set_nflag(false);
     cpu.set_hflag(false);
@@ -598,25 +664,25 @@ pub fn sra(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE
 }
 
 pub fn swap(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE]){
-    let operand = 
-        if let OperandSet::Unary(ref op) = instruction.operand{
+    let operands = 
+        if let OperandSet::Unary(ref op) = instruction.operands{
             op
         }
         else {
-            panic!("[ERROR] swap should have one operand");
+            panic!("[ERROR] swap should have one operands");
         };
     
-    if is_16bit_operand(operand.as_ref()) {
-        panic!("[ERROR] swap can not be an 16 bit operand");
+    if is_16bit_operand(operands.as_ref()) {
+        panic!("[ERROR] swap can not be an 16 bit operands");
     }
 
-    operand.update(
-        (operand.get_value(cpu, ram) & 0x0F) | (operand.get_value(cpu, ram) & 0xF0), 
+    operands.update(
+        (operands.get_value(cpu, ram) & 0x0F) | (operands.get_value(cpu, ram) & 0xF0), 
         cpu,
         ram
     );
 
-    let result = operand.get_value(cpu, ram);
+    let result = operands.get_value(cpu, ram);
     cpu.set_zflag(result == 0);
     cpu.set_nflag(false);
     cpu.set_hflag(false);
@@ -624,26 +690,26 @@ pub fn swap(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZ
 }
 
 pub fn srl(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE]){
-    let operand = 
-        if let OperandSet::Unary(ref op) = instruction.operand{
+    let operands = 
+        if let OperandSet::Unary(ref op) = instruction.operands{
             op
         }
         else {
-            panic!("[ERROR] srl should have one operand");
+            panic!("[ERROR] srl should have one operands");
         };
     
-    if is_16bit_operand(operand.as_ref()) {
-        panic!("[ERROR] srl can not be an 16 bit operand");
+    if is_16bit_operand(operands.as_ref()) {
+        panic!("[ERROR] srl can not be an 16 bit operands");
     }
 
-    let b0 = (operand.get_value(cpu, ram) & 1) as u8;
-    operand.update(
-        operand.get_value(cpu, ram) >> 1, 
+    let b0 = (operands.get_value(cpu, ram) & 1) as u8;
+    operands.update(
+        operands.get_value(cpu, ram) >> 1, 
         cpu,
         ram
     );
 
-    let result = operand.get_value(cpu, ram);
+    let result = operands.get_value(cpu, ram);
     cpu.set_zflag(result == 0);
     cpu.set_nflag(false);
     cpu.set_hflag(false);
@@ -652,7 +718,7 @@ pub fn srl(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE
 
 pub fn bit(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE]){
     let (op1, op2) =  
-        if let OperandSet::Binary(ref op1, ref op2) = instruction.operand{
+        if let OperandSet::Binary(ref op1, ref op2) = instruction.operands{
             (op1.get_value(cpu, ram), op2.get_value(cpu, ram))
         }
         else {
@@ -666,7 +732,7 @@ pub fn bit(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE
 
 pub fn res(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE]){
     let (op1, op2) =  
-        if let OperandSet::Binary(ref op1, ref op2) = instruction.operand{
+        if let OperandSet::Binary(ref op1, ref op2) = instruction.operands{
             (op1.get_value(cpu, ram), op2)
         }
         else {
@@ -690,7 +756,7 @@ pub fn res(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE
 
 pub fn set(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE]){
     let (op1, op2) = 
-        if let OperandSet::Binary(ref op1, ref op2) = instruction.operand{
+        if let OperandSet::Binary(ref op1, ref op2) = instruction.operands{
             (op1.get_value(cpu, ram), op2)
         }
         else {
@@ -705,11 +771,11 @@ pub fn set(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE
 }
 
 pub fn jp(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE]){
-    if let OperandSet::Binary(ref op1, ref op2) = instruction.operand {
+    if let OperandSet::Binary(ref op1, ref op2) = instruction.operands {
         if op1.get_value(cpu, ram) == 0 {return;}
         cpu.pc = op2.get_value(cpu, ram) as u16;
     }
-    else if let OperandSet::Unary(ref op) = instruction.operand {
+    else if let OperandSet::Unary(ref op) = instruction.operands {
         cpu.pc = op.get_value(cpu, ram) as u16;
     }
     else {
@@ -718,11 +784,11 @@ pub fn jp(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE]
 }
 
 pub fn jr(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE]){
-    if let OperandSet::Binary(ref op1, ref op2) = instruction.operand {
+    if let OperandSet::Binary(ref op1, ref op2) = instruction.operands {
         if op1.get_value(cpu, ram) == 0 {return;}
         cpu.pc += op2.get_value(cpu, ram) as u16;
     }
-    else if let OperandSet::Unary(ref op) = instruction.operand {
+    else if let OperandSet::Unary(ref op) = instruction.operands {
         cpu.pc += op.get_value(cpu, ram) as u16;
     }
     else {
@@ -731,20 +797,20 @@ pub fn jr(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE]
 }
 
 pub fn call(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE]){
-    if let OperandSet::Binary(ref op1, ref op2) = instruction.operand {
+    if let OperandSet::Binary(ref op1, ref op2) = instruction.operands {
         if op1.get_value(cpu, ram) == 0 {return;}
         cpu.sp -= 1;
-        ram[cpu.sp as usize] = (cpu.pc & 0x00FF) as u8;
+        ram[cpu.sp as usize] = (cpu.pc & 0xFF) as u8;
         cpu.sp -= 1;
-        ram[cpu.sp as usize] = ((cpu.pc & 0xFF00) >> 8) as u8;
+        ram[cpu.sp as usize] = (cpu.pc >> 8) as u8;
         cpu.pc = op2.get_value(cpu, ram) as u16;
     }
     /* NOTE: Can be used in CALL nn and RST $FF */
-    else if let OperandSet::Unary(ref op) = instruction.operand {
+    else if let OperandSet::Unary(ref op) = instruction.operands {
         cpu.sp -= 1;
-        ram[cpu.sp as usize] = (cpu.pc & 0x00FF) as u8;
+        ram[cpu.sp as usize] = (cpu.pc & 0xFF) as u8;
         cpu.sp -= 1;
-        ram[cpu.sp as usize] = ((cpu.pc & 0xFF00) >> 8) as u8;
+        ram[cpu.sp as usize] = (cpu.pc >> 8) as u8;
         cpu.pc = op.get_value(cpu, ram) as u16;
     }
     else {
@@ -757,17 +823,25 @@ pub fn ret(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE
         (ram[(cpu.sp + 1) as usize] as u16) << 8 |
         (ram[(cpu.sp) as usize] as u16);
     
-    if let OperandSet::Nullary = instruction.operand{
+    if let OperandSet::Nullary = instruction.operands{
+        
+        /* NOTE: Different from EI and DI
+         * RETI dosent have the IME 
+         * activation delay.
+         */
+        if instruction.opcode == 0xD9 {
+            cpu.ime = IME_ENABLED;
+        }
         cpu.sp += 2;
         cpu.pc = pc;
     }
-    else if let OperandSet::Unary(ref op) = instruction.operand {
+    else if let OperandSet::Unary(ref op) = instruction.operands {
         if op.get_value(cpu, ram) == 0 {return;}
         cpu.sp += 2;
         cpu.pc = pc;
     }
     else {
-        panic!("[ERROR] ret should have one or nonne operands");
+        panic!("[ERROR] ret/reti should have one or nonne operands");
     }
 }
 
