@@ -18,13 +18,26 @@ const ROM_SIZE_ADDR: usize = 0x0148;
 const RAM_SIZE_ADDR: usize = 0x0149;
 const CHECKSUM_ADDR: usize = 0x014D;
 
+pub fn dynamic_cartridge_build(rom: &Path) -> Box<dyn Cartridge> {
+    let rom = fs::read(rom).unwrap();
+    
+    if rom.len() < CTYPE_ADDR {
+        panic!("[ERROR] Invalid rom")
+    }
+
+    match rom[CTYPE_ADDR] {
+        RomOnly::TYPE => Box::new(RomOnly::new(rom)),
+        _ => panic!("[ERROR] Sorry this cartridge type is not implemented :(")
+    }
+}
+
 pub trait Cartridge{
     fn index(&self, index: usize) -> &Byte;
     fn index_mut(&mut self, index: usize) -> &mut Byte;
     fn get_type(&self) -> u8;
 }
 
-struct RomOnly{
+pub struct RomOnly{
     rom0: [Byte; (ROM0_RANGE.1 + 1) - ROM0_RANGE.0],
     romx: [Byte; (ROMX_RANGE.1 + 1) - ROMX_RANGE.0],
     sram: [Byte; (SRAM_RANGE.1 + 1) - SRAM_RANGE.0]
@@ -33,9 +46,7 @@ struct RomOnly{
 impl RomOnly{
     const TYPE: u8 = 0x00;
 
-    pub fn new(rom: &Path) -> Self{
-        let rom: Vec<u8> = fs::read(rom).unwrap();
-        
+    pub fn new(rom: Vec<u8>) -> Self{
         const ROM0_SIZE: usize = (ROM0_RANGE.1 + 1) - ROM0_RANGE.0;
         const ROMX_SIZE: usize = (ROMX_RANGE.1 + 1) - ROMX_RANGE.0;
         const SRAM_SIZE: usize = (SRAM_RANGE.1 + 1) - SRAM_RANGE.0;

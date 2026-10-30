@@ -1,7 +1,3 @@
-
-const DISPLAY_HEIGHT: u8 = 144;
-const DISPLAY_WIDHT: u8 = 160;
-
 const OAM_ADDR: usize = 0xFF46;
 
 const WY_ADDR: usize = 0xFF4A;

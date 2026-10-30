@@ -1,7 +1,10 @@
 use core::panic;
 use std::ops::{Index, IndexMut};
 
-use crate::core::{cartridge::{self, Cartridge}, system::Byte};
+use crate::core::{
+    cartridge::Cartridge, 
+    system::Byte
+};
 
 pub const ROM0_RANGE: (usize, usize) = (0x0000, 0x3FFF);
 pub const ROMX_RANGE: (usize, usize) = (0x4000, 0x7FFF);
@@ -24,11 +27,11 @@ pub struct Memory{
     io_registers: [Byte;(IO_REGISTERS_RANGE.1 + 1) - IO_REGISTERS_RANGE.0],
     hram: [Byte;(HRAM_RANGE.1 + 1) - HRAM_RANGE.0],
     ie_register: [Byte;(IE_REGISTER_RANGE.1 + 1) - IE_REGISTER_RANGE.0],
-    cartridge: &'static mut dyn Cartridge
+    cartridge: Box<dyn Cartridge>
 }
 
 impl Memory{
-    pub fn new(cartridge: &'static mut dyn Cartridge) -> Self{
+    pub fn new(cartridge: Box<dyn Cartridge>) -> Self{
         Self { 
             vram: [0;(VRAM_RANGE.1 + 1) - VRAM_RANGE.0],
             wram: [0;(WRAM_RANGE.1 + 1) - WRAM_RANGE.0],
@@ -70,6 +73,9 @@ impl Index<usize> for Memory{
         }
         else if index >= UNUSABLE_RANGE.0 && index <= UNUSABLE_RANGE.1 {
             &self.unusable[index - UNUSABLE_RANGE.0]
+        }
+        else if index >= IO_REGISTERS_RANGE.0 && index <= IO_REGISTERS_RANGE.1 {
+            &self.io_registers[index - IO_REGISTERS_RANGE.0]
         }
         else if index >= HRAM_RANGE.0 && index <= HRAM_RANGE.1 {
             &self.hram[index - HRAM_RANGE.0]

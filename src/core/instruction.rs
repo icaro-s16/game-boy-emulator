@@ -2,7 +2,8 @@ use core::panic;
 use std::{any::Any, unreachable};
 
 use crate::core::{
-    cpu::*, memory::Memory, system::*
+    cpu::*, 
+    memory::Memory
 };
 
 #[derive(Clone)]

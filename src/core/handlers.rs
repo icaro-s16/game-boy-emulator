@@ -1,10 +1,9 @@
 use core::panic;
 
 use crate::core::{
-    cpu::*, instruction::*, memory::Memory, system::{
-        Byte, 
-        MEMORY_SIZE
-    }
+    cpu::*, 
+    instruction::*, 
+    memory::Memory,
 };
   
 /* TODO: HALT
@@ -20,7 +19,7 @@ const HC_16B_MASK: usize = 0xFF;
 const C_8B_MASK: usize = 0xFF;
 const C_16B_MAKS: usize = 0xFFFF;
 
-pub fn halt(instruction: &Instruction, cpu: &mut Cpu, memory: &mut Memory){
+pub fn halt(instruction: &Instruction, cpu: &mut Cpu, _memory: &mut Memory){
     if let OperandSet::Nullary = instruction.operands {
         cpu.halt = HaltState::ENABLED;
         return;

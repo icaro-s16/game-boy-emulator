@@ -1,6 +1,5 @@
 use sdl2::{
-    EventPump, 
-    Sdl, 
+    EventPump,
     event::Event, 
     keyboard::Keycode
 };
@@ -9,11 +8,10 @@ use crate::core::{
     cpu::{
         IF_ADDR,
         JOYPAD_INTERRUPT_BIT
-    }, memory::Memory, system::{
-        Byte,
-        MEMORY_SIZE
-    }
+    }, 
+    memory::Memory
 };
+
 
 const P1_ADDR: usize = 0xFF00;
 const SELECTB_BIT: u8 = 0x5;
@@ -72,14 +70,29 @@ impl KeyMap {
     }
 }
 
+impl Default for KeyMap{
+    fn default() -> Self {
+        Self { 
+            start: Keycode::Q, 
+            select: Keycode::W, 
+            b: Keycode::B, 
+            a: Keycode::A, 
+            down: Keycode::DOWN, 
+            up: Keycode::UP, 
+            left: Keycode::LEFT, 
+            right:Keycode::RIGHT 
+        }
+    }
+}
+
 
 impl JoyPad {
-    pub fn new(kmap: KeyMap, sdl: Sdl) -> Self{
+    pub fn new(kmap: KeyMap, event_pump: EventPump) -> Self{
         Self{
             dkeys: 0xF,
             bkeys: 0xF,
             kmap,
-            event_pump: sdl.event_pump().unwrap()
+            event_pump
         }
     }
 

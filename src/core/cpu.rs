@@ -1,5 +1,8 @@
 use crate::core::{
-    imaps::*, instruction::*, memory::Memory, system::*
+    imaps::*, 
+    instruction::*, 
+    memory::Memory, 
+    system::*
 };
 
 pub const TIMA_ENABLE_BIT: u8 = 2; 
@@ -340,7 +343,7 @@ impl Cpu{
             }
             
             memory[DIV_ADDR] =
-                div as u8 >> 8;
+                (div >> 8) as u8;
             memory[DIV_ADDR + 1] = 
                 div as u8 & 0xFF;
         }
