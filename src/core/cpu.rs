@@ -1,40 +1,33 @@
 use crate::core::{
-    handlers::{
-        IME_DISABLED, 
-        IME_ENABLED, 
-        SHOULD_ENABLE_IME
-    }, 
-    imaps::*, 
-    instruction::*, 
-    system::*
+    imaps::*, instruction::*, memory::Memory, system::*
 };
 
-const TIMA_ENABLE_BIT: u8 = 2; 
+pub const TIMA_ENABLE_BIT: u8 = 2; 
 pub const DIV_ADDR: usize = 0xFF04;
 pub const TIMA_ADDR: usize = 0xFF05;
 pub const TMA_ADDR: usize = 0xFF06;
 pub const TAC_ADDR: usize = 0xFF04;
-const DIV_FALLING_EDGE: [u8;4] = [
+pub const DIV_FALLING_EDGE: [u8;4] = [
     9,
     3,
     5,
     7
 ];
 
-const VBLANK_INTERRUPT_BIT: u8 = 0;
-const LCD_INTERRUPT_BIT: u8 = 1;
-const TIMER_INTERRUPT_BIT: u8 = 2;
-const SERIAL_INTERRUPT_BIT: u8 = 3;
-const JOYPAD_INTERRUPT_BIT: u8 = 4;
+pub const VBLANK_INTERRUPT_BIT: u8 = 0;
+pub const LCD_INTERRUPT_BIT: u8 = 1;
+pub const TIMER_INTERRUPT_BIT: u8 = 2;
+pub const SERIAL_INTERRUPT_BIT: u8 = 3;
+pub const JOYPAD_INTERRUPT_BIT: u8 = 4;
 
-const VBLANK_HANDLER_ADDR: u16 = 0x40;
-const LCD_HANDLER_ADDR: u16 = 0x48;
-const TIMER_HANDLER_ADDR: u16 = 0x50;
-const SERIAL_HANDLER_ADDR: u16 = 0x58;
-const JOYPAD_HANDLER_ADDR: u16 = 0x60;
+pub const VBLANK_HANDLER_ADDR: u16 = 0x40;
+pub const LCD_HANDLER_ADDR: u16 = 0x48;
+pub const TIMER_HANDLER_ADDR: u16 = 0x50;
+pub const SERIAL_HANDLER_ADDR: u16 = 0x58;
+pub const JOYPAD_HANDLER_ADDR: u16 = 0x60;
 
-const IE_ADDR: usize = 0xFFFF;
-const IF_ADDR: usize = 0xFF0F;
+pub const IE_ADDR: usize = 0xFFFF;
+pub const IF_ADDR: usize = 0xFF0F;
 
 
 #[allow(dead_code)]
@@ -83,6 +76,26 @@ pub struct CpuContext{
     pub tima_tc_acca: u8
 }
 
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+pub enum ImeState{
+    ENABLED,
+    DISABLED,
+    SCHEDULED
+}
+
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+pub enum HaltState{
+    ENABLED,
+    DISABLED,
+    BUG
+}
+
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+pub enum StopState{
+    ENABLED,
+    DISABLED
+}
+
 pub struct Cpu{
     pub sp: Word,
     pub pc: Word,
@@ -94,8 +107,9 @@ pub struct Cpu{
     pub e: Byte,
     pub h: Byte,
     pub l: Byte,
-    pub ime: u8,
-    pub halt: bool,
+    pub ime: ImeState,
+    pub halt: HaltState,
+    pub stop: StopState,
     pub imaps: (
         [Instruction; 256], 
         [Option<Instruction>; 256]
@@ -143,8 +157,9 @@ impl Cpu{
             e: 0xD8,
             h: 0x01,
             l: 0x4D,
-            ime: IME_DISABLED,
-            halt: false,
+            ime: ImeState::DISABLED,
+            halt: HaltState::DISABLED,
+            stop: StopState::DISABLED,
             imaps: (
                 prefixed_imap(), 
                 unprefixed_imap()
@@ -156,19 +171,23 @@ impl Cpu{
 
     pub fn cycle(
         &mut self, 
-        ram: &mut [Byte;MEMORY_SIZE]
+        memory: &mut Memory
     ){
         if 
-            Cpu::active_interruption(ram) && 
-            self.halt 
+            Cpu::active_interruption(memory) && 
+            self.halt == HaltState::ENABLED
         {
-            self.halt = false;
-            if self.ime == IME_ENABLED {
-                self.state =    
-                    CpuState::Interrupt;
-            }
+            self.halt =
+                if self.ime == ImeState::ENABLED {
+                    self.state =    
+                        CpuState::Interrupt;
+                    HaltState::DISABLED
+                }
+                else {
+                    HaltState::BUG
+                };
         }
-        if self.halt {return;}
+        if self.halt == HaltState::ENABLED {return;}
 
         match self.state {
             CpuState::Fetch => {
@@ -177,8 +196,17 @@ impl Cpu{
                     M_CYCLE
                 ) {return;}
                 
-                let opcode_idx = ram[self.pc as usize] as usize; 
-                self.pc += 1; 
+                let opcode_idx = memory[self.pc as usize] as usize; 
+    
+                self.pc += 
+                    if self.halt != HaltState::BUG {
+                        1
+                    } 
+                    else {
+                        self.halt = HaltState::DISABLED;
+                        0
+                    };
+
                 self.context.opcode = 
                     (self.context.opcode << 8) | opcode_idx;
 
@@ -193,45 +221,45 @@ impl Cpu{
                 ) {return;}
 
                 self.sp -= 1;
-                ram[self.sp as usize] = (self.pc & 0xFF) as u8;
+                memory[self.sp as usize] = (self.pc & 0xFF) as u8;
                 self.sp -= 1;
-                ram[self.sp as usize] = (self.pc >> 8) as u8;  
+                memory[self.sp as usize] = (self.pc >> 8) as u8;  
 
                 self.pc = 
                     if 
-                        (ram[IE_ADDR] & VBLANK_INTERRUPT_BIT) != 0  &&
-                        (ram[IF_ADDR] & VBLANK_INTERRUPT_BIT) != 0 
+                        (memory[IE_ADDR] & VBLANK_INTERRUPT_BIT) != 0  &&
+                        (memory[IF_ADDR] & VBLANK_INTERRUPT_BIT) != 0 
                     {
-                        ram[IF_ADDR] &= !VBLANK_INTERRUPT_BIT;
+                        memory[IF_ADDR] &= !VBLANK_INTERRUPT_BIT;
                         VBLANK_HANDLER_ADDR 
                     }
                     else if 
-                        (ram[IE_ADDR] & (1 << LCD_INTERRUPT_BIT)) != 0 &&
-                        (ram[IF_ADDR] & (1 << LCD_INTERRUPT_BIT)) != 0 
+                        (memory[IE_ADDR] & (1 << LCD_INTERRUPT_BIT)) != 0 &&
+                        (memory[IF_ADDR] & (1 << LCD_INTERRUPT_BIT)) != 0 
                     {
-                        ram[IF_ADDR] &= !(1 << LCD_INTERRUPT_BIT);
+                        memory[IF_ADDR] &= !(1 << LCD_INTERRUPT_BIT);
                         LCD_HANDLER_ADDR
                     }
                     else if 
-                        (ram[IE_ADDR] & (1 << TIMER_INTERRUPT_BIT)) != 0 &&
-                        (ram[IF_ADDR] & (1 << TIMER_INTERRUPT_BIT)) != 0
+                        (memory[IE_ADDR] & (1 << TIMER_INTERRUPT_BIT)) != 0 &&
+                        (memory[IF_ADDR] & (1 << TIMER_INTERRUPT_BIT)) != 0
                     {
-                        ram[IF_ADDR] &= !(1 << TIMER_INTERRUPT_BIT);
+                        memory[IF_ADDR] &= !(1 << TIMER_INTERRUPT_BIT);
                         TIMER_HANDLER_ADDR
                     }
                     else if 
-                        (ram[IE_ADDR] & (1 << SERIAL_INTERRUPT_BIT)) != 0 && 
-                        (ram[IF_ADDR] & (1 << SERIAL_INTERRUPT_BIT)) != 0
+                        (memory[IE_ADDR] & (1 << SERIAL_INTERRUPT_BIT)) != 0 && 
+                        (memory[IF_ADDR] & (1 << SERIAL_INTERRUPT_BIT)) != 0
                     {
-                        ram[IF_ADDR] &= !(1 << SERIAL_INTERRUPT_BIT);
+                        memory[IF_ADDR] &= !(1 << SERIAL_INTERRUPT_BIT);
                         SERIAL_HANDLER_ADDR
                     }
                     else {
-                        ram[IF_ADDR] &= !(1 << JOYPAD_INTERRUPT_BIT);
+                        memory[IF_ADDR] &= !(1 << JOYPAD_INTERRUPT_BIT);
                         JOYPAD_HANDLER_ADDR
                     };
                 
-                self.ime = 0;
+                self.ime = ImeState::DISABLED;
                 self.state = CpuState::Fetch;
 
             }
@@ -246,7 +274,7 @@ impl Cpu{
                     
                 self.context.instruction_t_cycles = 
                     instruction
-                    .get_t_cycles(self, ram);
+                    .get_t_cycles(self, memory);
                 
                 self.context.instruction = Some(instruction);
 
@@ -266,20 +294,21 @@ impl Cpu{
                     .unwrap();
 
                 let should_enable_ime = 
-                    self.ime == SHOULD_ENABLE_IME;
+                    self.ime == ImeState::SCHEDULED;
 
-                (instruction.execute)(&instruction, self, ram);
+                (instruction.execute)(&instruction, self, memory);
 
                 /* NOTE: This is used to apply the delay of 
                 * the EI instruction, which enables the IME after 
                 * the execution of the following instruction.
                 */
                 if should_enable_ime
-                {self.ime = IME_ENABLED;}
+                {self.ime = ImeState::ENABLED;}
 
                 self.state = 
                     if 
-                        self.ime == IME_ENABLED && Cpu::active_interruption(ram) 
+                        self.ime == ImeState::ENABLED && 
+                        Cpu::active_interruption(memory) 
                     {
                         CpuState::Interrupt
                     }
@@ -290,28 +319,31 @@ impl Cpu{
         }
     }
     
-    pub fn active_interruption(ram: &[Byte;MEMORY_SIZE]) -> bool {
-        (ram[IE_ADDR] & ram[IF_ADDR]) != 0
+    pub fn active_interruption(memory: &Memory) -> bool {
+        (memory[IE_ADDR] & memory[IF_ADDR]) != 0
     }
 
     pub fn timer(
         &mut self, 
-        ram: &mut [Byte;MEMORY_SIZE],
+        memory: &mut Memory,
     ){
         let mut div =   
-            ((ram[DIV_ADDR] as u16) << 8) | ram[DIV_ADDR + 1] as u16;
+            ((memory[DIV_ADDR] as u16) << 8) | memory[DIV_ADDR + 1] as u16;
 
-        if div < 0xFFFF {
-            div += 1;
+        if self.stop == StopState::ENABLED {
+
+            if div < 0xFFFF {
+                div += 1;
+            }
+            else {
+                div = 0;
+            }
+            
+            memory[DIV_ADDR] =
+                div as u8 >> 8;
+            memory[DIV_ADDR + 1] = 
+                div as u8 & 0xFF;
         }
-        else {
-            div = 0;
-        }
-        
-        ram[DIV_ADDR] =
-            div as u8 >> 8;
-        ram[DIV_ADDR + 1] = 
-            div as u8 & 0xFF;
 
         /* NOTE: The increment rate of TIMA is controlled
         * by the falling edge of the AND operation between
@@ -320,8 +352,8 @@ impl Cpu{
         * with the current one.
         */
         let and_res = 
-            (div & (1 << DIV_FALLING_EDGE[(ram[TAC_ADDR] & 0b11) as usize])) != 0 &&
-            (ram[TAC_ADDR] & (1 << TIMA_ENABLE_BIT)) != 0;
+            (div & (1 << DIV_FALLING_EDGE[(memory[TAC_ADDR] & 0b11) as usize])) != 0 &&
+            (memory[TAC_ADDR] & (1 << TIMA_ENABLE_BIT)) != 0;
 
         let tima_inc = 
             self.context.fedge && !and_res;
@@ -330,7 +362,7 @@ impl Cpu{
 
         if 
             !tima_inc || 
-            (ram[TAC_ADDR] & (1 << TIMA_ENABLE_BIT)) == 0
+            (memory[TAC_ADDR] & (1 << TIMA_ENABLE_BIT)) == 0
         {return;} 
 
         if 
@@ -340,15 +372,15 @@ impl Cpu{
                 M_CYCLE
             )
         {
-            ram[TAC_ADDR] |= 1 << TIMA_ENABLE_BIT;
-            ram[TIMA_ADDR] = ram[TMA_ADDR];
+            memory[TAC_ADDR] |= 1 << TIMA_ENABLE_BIT;
+            memory[TIMA_ADDR] = memory[TMA_ADDR];
         }
-        else if ram[TIMA_ADDR] < 0xFF {
-            ram[TIMA_ADDR] += 1;
+        else if memory[TIMA_ADDR] < 0xFF {
+            memory[TIMA_ADDR] += 1;
         }
         else{
             self.context.tima_overflow = true;
-            ram[TIMA_ADDR] = 0;
+            memory[TIMA_ADDR] = 0;
         }
     }
 

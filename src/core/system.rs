@@ -1,4 +1,8 @@
-use crate::core::cpu::*;
+use crate::core::{
+    cpu::*, 
+    joypad::*, 
+    memory::Memory
+};
 use std::time::Instant;
 
 pub type Byte = u8;
@@ -9,11 +13,12 @@ pub const MEMORY_SIZE: usize = 32 * 1_024;
 
 const MASTER_CLOCK_HZ: u32 = 4_194_304;
 
-const T_CYCLE_DELAY: f64 = 1.0 / (MASTER_CLOCK_HZ as f64 / 4.0);
+const T_CYCLE_DELAY: f64 = 1.0 / MASTER_CLOCK_HZ as f64;
 
 pub struct System{
-    pub ram: [Byte;MEMORY_SIZE],
+    pub memory: Memory,
     pub cpu: Cpu,
+    pub joypad: JoyPad
     // TODO: Ppu,
     // TODO: Apu,
 }
@@ -21,7 +26,8 @@ pub struct System{
 impl System{
     pub fn new() -> Self{
         Self {
-            ram: [0;MEMORY_SIZE],
+            memory: Memory::new(),
+            joypad: JoyPad::new(kmap, sdl),
             cpu: Cpu::new()
         }
     }
@@ -44,13 +50,16 @@ impl System{
 
             
             system.cpu.timer(
-                &mut system.ram
-            );
-        
-            system.cpu.cycle(
-                &mut system.ram
+                &mut system.memory
             );
 
+            system.joypad.update(
+                &mut system.memory
+            );
+
+            system.cpu.cycle(
+                &mut system.memory
+            );
         }
 
     }

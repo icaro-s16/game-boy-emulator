@@ -2,8 +2,7 @@ use core::panic;
 use std::{any::Any, unreachable};
 
 use crate::core::{
-    cpu::*,
-    system::*
+    cpu::*, memory::Memory, system::*
 };
 
 #[derive(Clone)]
@@ -12,7 +11,7 @@ pub struct Instruction{
     pub mnemonic: &'static str,
     pub operands: OperandSet,
     pub cycles: Vec<u8>,
-    pub execute: &'static dyn Fn(&Instruction, &mut Cpu, &mut [Byte;MEMORY_SIZE])
+    pub execute: &'static dyn Fn(&Instruction, &mut Cpu, &mut Memory)
 }
 
 #[derive(Clone)]
@@ -64,14 +63,14 @@ pub trait Operand{
     fn get_value(
         &self, 
         cpu: &mut Cpu,
-        ram: &[Byte;MEMORY_SIZE]
+        memory: &Memory
     ) -> usize;
     
     fn update(
         &self, 
         _value: usize, 
         _cpu: &mut Cpu, 
-        _ram: &mut [Byte;MEMORY_SIZE]
+        _memory: &mut Memory
     ){
         panic!("[ERROR] The operand can not be updated")
     }
@@ -95,22 +94,26 @@ impl Instruction{
         mnemonic: &'static str, 
         operands: OperandSet, 
         cycles: Vec<u8>,
-        execute: &'static dyn Fn(&Instruction, &mut Cpu, &mut [Byte;MEMORY_SIZE])
+        execute: &'static dyn Fn(&Instruction, &mut Cpu, &mut Memory)
     ) -> Self{
         Self {opcode, mnemonic, operands, cycles, execute}
     }
 
-    pub fn get_t_cycles(&self, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE]) -> u8{
+    pub fn get_t_cycles(
+        &self, 
+        cpu: &mut Cpu, 
+        memory: &mut Memory
+    ) -> u8{
         if 
             self.cycles.len() == 2
         {
             match self.operands {
                 OperandSet::Binary(ref op, _) => {
-                    if op.get_value(cpu, ram) != 0 {self.cycles[1]}
+                    if op.get_value(cpu, memory) != 0 {self.cycles[1]}
                     else {self.cycles[0]}
                 },
                 OperandSet::Unary(ref op) => {
-                    if op.get_value(cpu, ram) != 0 {self.cycles[1]}
+                    if op.get_value(cpu, memory) != 0 {self.cycles[1]}
                     else {self.cycles[0]}
                 },
                 OperandSet::Nullary => self.cycles[0] 
@@ -139,7 +142,7 @@ impl Operand for Address{
     fn get_value(
         &self, 
         cpu: &mut Cpu,
-        ram: &[Byte;MEMORY_SIZE]
+        memory: &Memory
     ) -> usize{
         if 
             self.0.get_type() == OperandType::Address   ||
@@ -149,8 +152,8 @@ impl Operand for Address{
             panic!("[ERROR] The value inside of an address can not be an address, a flag or a literal");
         }
 
-        let address  = self.0.get_value(cpu, ram);
-        ram[
+        let address  = self.0.get_value(cpu, memory);
+        memory[
             address
         ] as usize
     }
@@ -159,17 +162,17 @@ impl Operand for Address{
         &self, 
         value: usize, 
         cpu: &mut Cpu, 
-        ram: &mut [Byte;MEMORY_SIZE]
+        memory: &mut Memory
     ){
-        let address = self.0.get_value(cpu, ram);
+        let address = self.0.get_value(cpu, memory);
 
         if 
             address == DIV_ADDR 
         {
-            ram[DIV_ADDR] = 0;
+            memory[DIV_ADDR] = 0;
         } 
         else{ 
-            ram[address] = value as u8;
+            memory[address] = value as u8;
         }
     }
 }
@@ -179,7 +182,7 @@ impl Address{
         &self, 
         offset: usize, 
         cpu: &mut Cpu, 
-        ram: &[Byte;MEMORY_SIZE]
+        memory: &Memory
     ) -> usize{
         if 
             self.0.get_type() == OperandType::Address   ||
@@ -189,8 +192,8 @@ impl Address{
             panic!("[ERROR] The value inside of an address can not be an address, a flag or a literal");
         }
 
-        let address = self.0.get_value(cpu, ram) + offset;
-        ram[
+        let address = self.0.get_value(cpu, memory) + offset;
+        memory[
             address
         ] as usize
     }
@@ -200,17 +203,17 @@ impl Address{
         value: usize, 
         offset: usize, 
         cpu: &mut Cpu, 
-        ram: &mut [Byte;MEMORY_SIZE]
+        memory: &mut Memory
     ){
-        let address = self.0.get_value(cpu, ram) + offset;
+        let address = self.0.get_value(cpu, memory) + offset;
         
         if 
             address + offset == DIV_ADDR 
         {
-            ram[DIV_ADDR] = 0;
+            memory[DIV_ADDR] = 0;
         } 
         else{ 
-            ram[address] = value as u8;
+            memory[address] = value as u8;
         }
     }
 }
@@ -225,9 +228,9 @@ impl Operand for I8{
     fn get_value(
         &self, 
         cpu: &mut Cpu, 
-        ram: &[Byte;MEMORY_SIZE]
+        memory: &Memory
     ) -> usize{
-        let value = ram[cpu.pc as usize].clone() as usize;
+        let value = memory[cpu.pc as usize].clone() as usize;
         cpu.pc += 1;
         value
     }
@@ -243,9 +246,9 @@ impl Operand for U8{
     fn get_value(
         &self, 
         cpu: &mut Cpu,
-        ram: &[Byte;MEMORY_SIZE]
+        memory: &Memory
     ) -> usize{
-        let value = ram[cpu.pc as usize].clone() as usize;
+        let value = memory[cpu.pc as usize].clone() as usize;
         cpu.pc += 1;
         value
     }
@@ -261,11 +264,11 @@ impl Operand for U16{
     fn get_value(
         &self, 
         cpu: &mut Cpu, 
-        ram: &[Byte;MEMORY_SIZE]
+        memory: &Memory
     ) -> usize{
-        let v1 = ram[cpu.pc as usize].clone();
+        let v1 = memory[cpu.pc as usize].clone();
         cpu.pc += 1;
-        let v2 = ram[cpu.pc as usize].clone();
+        let v2 = memory[cpu.pc as usize].clone();
         cpu.pc += 1;
 
         /* NOTE: Game Boy use little endian. */
@@ -283,7 +286,7 @@ impl Operand for Literal{
     fn get_value(
         &self, 
         _cpu: &mut Cpu, 
-        _ram: &[Byte;MEMORY_SIZE]
+        _memory: &Memory
     ) -> usize{
         self.0 as usize
     }
@@ -299,7 +302,7 @@ impl Operand for Flag{
     fn get_value(
         &self, 
         cpu: &mut Cpu, 
-        _ram: &[Byte;MEMORY_SIZE]
+        _memory: &Memory
     ) -> usize{
         match self{
             Flag::Z => {
@@ -334,7 +337,7 @@ impl Operand for Register{
     fn get_value(
         &self, 
         cpu: &mut Cpu, 
-        _ram: &[Byte;MEMORY_SIZE]
+        _memory: &Memory
     ) -> usize{
         match self{
             Register::Union(r1, r2) => {
@@ -378,7 +381,7 @@ impl Operand for Register{
         &self, 
         value: usize, 
         cpu: &mut Cpu, 
-        _ram: &mut [Byte;MEMORY_SIZE]
+        _memory: &mut Memory
     ){
         let word = value as u16;
         let bytes = word.to_be_bytes();
