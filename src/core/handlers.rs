@@ -26,7 +26,24 @@ const HC_16B_MASK: usize = 0xFF;
 const C_8B_MASK: usize = 0xFF;
 const C_16B_MAKS: usize = 0xFFFF;
 
-pub fn halt(_instruction: &Instruction, _cpu: &mut Cpu, _ram: &mut [Byte;MEMORY_SIZE]){}
+pub fn halt(instruction: &Instruction, cpu: &mut Cpu, ram: &mut [Byte;MEMORY_SIZE]){
+    if let OperandSet::Nullary = instruction.operands {
+        if 
+            Cpu::active_interruption(ram) &&
+            cpu.ime == IME_DISABLED
+        {
+            cpu.halt = false;
+            
+        }
+        else{
+            cpu.halt = true;
+        }
+        return;
+    }
+
+    panic!("[ERROR] halt should not have operands")
+}
+
 pub fn stop(_instruction: &Instruction, _cpu: &mut Cpu, _ram: &mut [Byte;MEMORY_SIZE]){}
 
 pub fn daa(instruction: &Instruction, cpu: &mut Cpu, _ram: &mut [Byte;MEMORY_SIZE]){

@@ -158,6 +158,18 @@ impl Cpu{
         &mut self, 
         ram: &mut [Byte;MEMORY_SIZE]
     ){
+        if 
+            Cpu::active_interruption(ram) && 
+            self.halt 
+        {
+            self.halt = false;
+            if self.ime == IME_ENABLED {
+                self.state =    
+                    CpuState::Interrupt;
+            }
+        }
+        if self.halt {return;}
+
         match self.state {
             CpuState::Fetch => {
                 if !Cpu::sync(
@@ -279,11 +291,7 @@ impl Cpu{
     }
     
     pub fn active_interruption(ram: &[Byte;MEMORY_SIZE]) -> bool {
-        ((ram[IE_ADDR] & VBLANK_INTERRUPT_BIT) != 0 && (ram[IF_ADDR] & VBLANK_INTERRUPT_BIT) != 0) ||
-        ((ram[IE_ADDR] & (1 << LCD_INTERRUPT_BIT)) != 0 && (ram[IF_ADDR] & (1 << LCD_INTERRUPT_BIT)) != 0) ||
-        ((ram[IE_ADDR] & (1 << TIMER_INTERRUPT_BIT)) != 0 && (ram[IF_ADDR] & (1 << TIMER_INTERRUPT_BIT)) != 0) ||
-        ((ram[IE_ADDR] & (1 << SERIAL_INTERRUPT_BIT)) != 0 && (ram[IF_ADDR] & (1 << SERIAL_INTERRUPT_BIT)) != 0) ||
-        ((ram[IE_ADDR] & (1 << JOYPAD_INTERRUPT_BIT)) != 0 && (ram[IF_ADDR] & (1 << JOYPAD_INTERRUPT_BIT)) != 0)
+        (ram[IE_ADDR] & ram[IF_ADDR]) != 0
     }
 
     pub fn timer(
